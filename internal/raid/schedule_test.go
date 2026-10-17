@@ -113,3 +113,34 @@ func TestScheduleRaidRejectsPastTimes(t *testing.T) {
 		}
 	}
 }
+
+// TestJoinRaid covers members joining after the raid is scheduled: players can
+// join until the fireteam has 6, the 7th is refused with ErrFull, and someone
+// already in the fireteam can't join again.
+func TestJoinRaid(t *testing.T) {
+	r, err := Schedule("Last Wish", time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), []string{"Anthony", "Cayde"}, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := r.Join("Cayde"); !errors.Is(err, ErrDuplicateMember) {
+		t.Errorf("Join(existing member): err = %v, want ErrDuplicateMember", err)
+	}
+
+	for _, m := range []string{"Ikora", "Zavala", "Saint", "Osiris"} {
+		if err := r.Join(m); err != nil {
+			t.Fatalf("Join(%q) with %d members: %v", m, len(r.Members), err)
+		}
+	}
+	want := []string{"Anthony", "Cayde", "Ikora", "Zavala", "Saint", "Osiris"}
+	if !slices.Equal(r.Members, want) {
+		t.Errorf("Members = %v, want %v", r.Members, want)
+	}
+
+	if err := r.Join("Eris"); !errors.Is(err, ErrFull) {
+		t.Errorf("Join as 7th member: err = %v, want ErrFull", err)
+	}
+	if len(r.Members) != FireteamSize {
+		t.Errorf("after refused join, len(Members) = %d, want %d", len(r.Members), FireteamSize)
+	}
+}

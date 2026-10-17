@@ -66,3 +66,15 @@ func Schedule(name string, start time.Time, members []string, now time.Time) (Ra
 		Members:  slices.Clone(members),
 	}, nil
 }
+
+// Join adds a member to the fireteam.
+func (r *Raid) Join(member string) error {
+	if slices.Contains(r.Members, member) {
+		return fmt.Errorf("%w: %q", ErrDuplicateMember, member)
+	}
+	if len(r.Members) >= FireteamSize {
+		return ErrFull
+	}
+	r.Members = append(r.Members, member)
+	return nil
+}
