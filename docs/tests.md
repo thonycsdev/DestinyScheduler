@@ -2,7 +2,7 @@
 
 Every test in the repo, the requirement it protects, and the branch that introduced it. Keep this in sync when adding or changing tests.
 
-Run one with `go test ./internal/raid -run <TestName> -v`.
+Run one with `go test ./internal/<package> -run <TestName> -v`.
 
 ## internal/raid
 
@@ -17,3 +17,38 @@ Run one with `go test ./internal/raid -run <TestName> -v`.
 | `TestParseStartRejectsBadInput` | Unknown or empty time zone, wrong date format, impossible date, 12h time, or out-of-range hour returns an error. An empty zone must not silently become UTC. | `feature/parse-start-input` |
 | `TestParseStartHandlesDaylightSaving` | Uses the UTC offset in effect on the raid's date, across 2026 DST changes in `Europe/London` (Mar 29, Oct 25) and `America/New_York` (Nov 1). Passed without code changes (Go's tz database handles it); verified it fails if `ParseStart` used a fixed offset. | `feature/daylight-saving` |
 | `TestJoinRaid` | After scheduling, `Raid.Join` adds members up to 6; the 7th fails with `ErrFull` and leaves the fireteam unchanged; an existing member (including the leader) re-joining fails with `ErrDuplicateMember`. Since `Schedule` no longer takes a member list, this is now the only place the 6-player cap and the no-duplicates rule are enforced. | `feature/join-raid` |
+| `TestLeaveRaid` | `Raid.Leave` removes a member and frees their slot for someone else; a non-member leaving fails with `ErrNotMember`; the leader leaving fails with `ErrLeaderCannotLeave` and stays in the fireteam. | `feature/leave-raid` |
+
+## internal/config
+
+| Test | Requirement | Branch |
+|---|---|---|
+| `TestLoadPriority` | Precedence is real environment variable > `.env` (local, git-ignored) > `.env.development` (committed defaults). | `feature/env-config` |
+| `TestLoadDoesNotModifyEnvironment` | Values read from env files are not written into the process environment. | `feature/env-config` |
+| `TestLoadRequiresDatabaseURL` | No `DATABASE_URL` anywhere fails with `ErrMissingDatabaseURL`; missing env files alone are not an error (CI/production have none). | `feature/env-config` |
+| `TestDevelopmentEnvMatchesCompose` | The committed `.env.development` `DATABASE_URL` uses the same user, password and database as `POSTGRES_*` (which `docker-compose.yml` creates the container with) and points at `localhost:5432`. | `feature/env-config` |
+
+## internal/database
+
+These tests need Docker running. `dbtest.Run` (called from `TestMain`) starts one `postgres:18` container per test package via testcontainers-go and applies every migration from empty; each test then calls `dbtest.Pool(t)`, which `TRUNCATE`s every table except `goose_db_version` first.
+
+| Test | Requirement | Branch |
+|---|---|---|
+| `TestMigrationsCreateRaidSchema` | `raids.id` defaults to a UUIDv7; inserting the same `(raid_id, user_id)` into `raid_members` twice is a unique violation (23505); deleting a raid deletes its members. | `feature/database-migrations` |
+| `TestMigrationsDownAndUp` | Every migration rolls back to version 0 (tables gone) and re-applies; `CheckSchema` returns `ErrSchemaBehind` on a database that's behind and nil when current (what the bot checks on startup). | `feature/database-migrations` |
+| `TestPoolResetsBetweenTests` | `dbtest.Pool` empties all tables but keeps the migrated schema. | `feature/database-migrations` |
+
+## internal/repository/raid
+
+Needs Docker (uses `dbtest`, see above). The package is named `raid`; tests import it as `raidrepo` and the domain package as `domain`.
+
+| Test | Requirement | Branch |
+|---|---|---|
+| `TestCreateAndGet` | `Create` stores a scheduled raid and returns a DB-assigned ID; `Get` returns the same name, leader, members (leader only) and start time in UTC, with empty channel/message IDs. | `feature/raid-repository` |
+| `TestGetUnknownRaid` | An unknown ID, a malformed ID (`not-a-uuid`) or an empty ID returns `ErrNotFound`, not a database error. | `feature/raid-repository` |
+| `TestJoinAndLeavePersist` | `Join`/`Leave` are saved and keep join order; domain errors (`ErrDuplicateMember`, `ErrLeaderCannotLeave`, `ErrNotMember`) come through; unknown or malformed raid IDs give `ErrNotFound`. | `feature/raid-repository` |
+| `TestJoinFullRaid` | A 7th `Join` returns `ErrFull` and the database still holds 6 members. | `feature/raid-repository` |
+| `TestConcurrentJoins` | 10 simultaneous joins on a raid with 5 members: exactly 1 succeeds, 9 get `ErrFull`, 6 stored. Verified it fails (10 join, 15 stored) without the `SELECT ... FOR UPDATE` row lock. | `feature/raid-repository` |
+| `TestSetMessage` | `SetMessage` saves the Discord channel and message IDs; an unknown raid returns `ErrNotFound`. | `feature/raid-repository` |
+| `TestDelete` | `Delete` removes the raid and its members; deleting again returns `ErrNotFound`. | `feature/raid-repository` |
+| `TestListUpcoming` | `ListUpcoming(now)` returns only raids starting after `now`, soonest first, each with its members. | `feature/raid-repository` |

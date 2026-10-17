@@ -26,11 +26,13 @@ var Names = []string{
 }
 
 var (
-	ErrFull            = errors.New("fireteam is full (max 6 members)")
-	ErrUnknownRaid     = errors.New("unknown raid")
-	ErrNoLeader        = errors.New("a raid needs a leader")
-	ErrDuplicateMember = errors.New("already in the fireteam")
-	ErrInPast          = errors.New("raid time is in the past")
+	ErrFull              = errors.New("fireteam is full (max 6 members)")
+	ErrUnknownRaid       = errors.New("unknown raid")
+	ErrNoLeader          = errors.New("a raid needs a leader")
+	ErrDuplicateMember   = errors.New("already in the fireteam")
+	ErrInPast            = errors.New("raid time is in the past")
+	ErrNotMember         = errors.New("not in the fireteam")
+	ErrLeaderCannotLeave = errors.New("the leader can't leave; cancel the raid instead")
 )
 
 // Raid is a scheduled raid and its fireteam.
@@ -73,5 +75,18 @@ func (r *Raid) Join(member string) error {
 		return ErrFull
 	}
 	r.Members = append(r.Members, member)
+	return nil
+}
+
+// Leave removes a member from the fireteam. The leader can't leave.
+func (r *Raid) Leave(member string) error {
+	if member == r.LeaderID {
+		return ErrLeaderCannotLeave
+	}
+	i := slices.Index(r.Members, member)
+	if i < 0 {
+		return fmt.Errorf("%w: %q", ErrNotMember, member)
+	}
+	r.Members = slices.Delete(r.Members, i, i+1)
 	return nil
 }
