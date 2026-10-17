@@ -18,6 +18,7 @@ Run one with `go test ./internal/<package> -run <TestName> -v`.
 | `TestParseStartHandlesDaylightSaving` | Uses the UTC offset in effect on the raid's date, across 2026 DST changes in `Europe/London` (Mar 29, Oct 25) and `America/New_York` (Nov 1). Passed without code changes (Go's tz database handles it); verified it fails if `ParseStart` used a fixed offset. | `feature/daylight-saving` |
 | `TestJoinRaid` | After scheduling, `Raid.Join` adds members up to 6; the 7th fails with `ErrFull` and leaves the fireteam unchanged; an existing member (including the leader) re-joining fails with `ErrDuplicateMember`. Since `Schedule` no longer takes a member list, this is now the only place the 6-player cap and the no-duplicates rule are enforced. | `feature/join-raid` |
 | `TestLeaveRaid` | `Raid.Leave` removes a member and frees their slot for someone else; a non-member leaving fails with `ErrNotMember`; the leader leaving fails with `ErrLeaderCannotLeave` and stays in the fireteam. | `feature/leave-raid` |
+| `TestJoinAndLeaveRefusedAfterStart` (raid) | From the start time on (`now >= StartsAt`), `Join` and `Leave` fail with `ErrStarted` and the fireteam is unchanged; one second before start still works. `Join`/`Leave` take `now`. | `feature/started-raids` |
 
 ## internal/config
 
@@ -52,3 +53,4 @@ Needs Docker (uses `dbtest`, see above). The package is named `raid`; tests impo
 | `TestSetMessage` | `SetMessage` saves the Discord channel and message IDs; an unknown raid returns `ErrNotFound`. | `feature/raid-repository` |
 | `TestDelete` | `Delete` removes the raid and its members; deleting again returns `ErrNotFound`. | `feature/raid-repository` |
 | `TestListUpcoming` | `ListUpcoming(now)` returns only raids starting after `now`, soonest first, each with its members. | `feature/raid-repository` |
+| `TestJoinAndLeaveRefusedAfterStart` (repository) | `Repository.Join`/`Leave` take `now` and the domain's `ErrStarted` rule applies to stored raids; nothing is written. | `feature/started-raids` |

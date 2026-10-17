@@ -119,20 +119,22 @@ func (repo *Repository) update(ctx context.Context, id string, change func(*doma
 	return r, nil
 }
 
-// Join adds userID to the raid's fireteam, applying domain.Raid.Join's rules.
-func (repo *Repository) Join(ctx context.Context, id, userID string) (domain.Raid, error) {
+// Join adds userID to the raid's fireteam, applying domain.Raid.Join's rules
+// at time now.
+func (repo *Repository) Join(ctx context.Context, id, userID string, now time.Time) (domain.Raid, error) {
 	return repo.update(ctx, id,
-		func(r *domain.Raid) error { return r.Join(userID) },
+		func(r *domain.Raid) error { return r.Join(userID, now) },
 		func(tx pgx.Tx) error {
 			_, err := tx.Exec(ctx, "INSERT INTO raid_members (raid_id, user_id) VALUES ($1, $2)", id, userID)
 			return err
 		})
 }
 
-// Leave removes userID from the raid's fireteam, applying domain.Raid.Leave's rules.
-func (repo *Repository) Leave(ctx context.Context, id, userID string) (domain.Raid, error) {
+// Leave removes userID from the raid's fireteam, applying domain.Raid.Leave's
+// rules at time now.
+func (repo *Repository) Leave(ctx context.Context, id, userID string, now time.Time) (domain.Raid, error) {
 	return repo.update(ctx, id,
-		func(r *domain.Raid) error { return r.Leave(userID) },
+		func(r *domain.Raid) error { return r.Leave(userID, now) },
 		func(tx pgx.Tx) error {
 			_, err := tx.Exec(ctx, "DELETE FROM raid_members WHERE raid_id = $1 AND user_id = $2", id, userID)
 			return err

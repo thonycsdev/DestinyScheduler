@@ -113,12 +113,12 @@ func TestJoinRaid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := r.Join("leader-1"); !errors.Is(err, ErrDuplicateMember) {
+	if err := r.Join("leader-1", testNow); !errors.Is(err, ErrDuplicateMember) {
 		t.Errorf("Join(leader): err = %v, want ErrDuplicateMember", err)
 	}
 
 	for _, m := range []string{"u2", "u3", "u4", "u5", "u6"} {
-		if err := r.Join(m); err != nil {
+		if err := r.Join(m, testNow); err != nil {
 			t.Fatalf("Join(%q) with %d members: %v", m, len(r.Members), err)
 		}
 	}
@@ -127,10 +127,10 @@ func TestJoinRaid(t *testing.T) {
 		t.Errorf("Members = %v, want %v", r.Members, want)
 	}
 
-	if err := r.Join("u2"); !errors.Is(err, ErrDuplicateMember) {
+	if err := r.Join("u2", testNow); !errors.Is(err, ErrDuplicateMember) {
 		t.Errorf("Join(existing member): err = %v, want ErrDuplicateMember", err)
 	}
-	if err := r.Join("u7"); !errors.Is(err, ErrFull) {
+	if err := r.Join("u7", testNow); !errors.Is(err, ErrFull) {
 		t.Errorf("Join as 7th member: err = %v, want ErrFull", err)
 	}
 	if len(r.Members) != FireteamSize {
@@ -147,28 +147,57 @@ func TestLeaveRaid(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, m := range []string{"u2", "u3", "u4", "u5", "u6"} {
-		if err := r.Join(m); err != nil {
+		if err := r.Join(m, testNow); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	if err := r.Leave("u3"); err != nil {
+	if err := r.Leave("u3", testNow); err != nil {
 		t.Fatalf("Leave(member): %v", err)
 	}
 	if want := []string{"leader-1", "u2", "u4", "u5", "u6"}; !slices.Equal(r.Members, want) {
 		t.Errorf("Members = %v, want %v", r.Members, want)
 	}
-	if err := r.Join("u7"); err != nil {
+	if err := r.Join("u7", testNow); err != nil {
 		t.Errorf("Join after a slot was freed: %v", err)
 	}
 
-	if err := r.Leave("u3"); !errors.Is(err, ErrNotMember) {
+	if err := r.Leave("u3", testNow); !errors.Is(err, ErrNotMember) {
 		t.Errorf("Leave(non-member): err = %v, want ErrNotMember", err)
 	}
-	if err := r.Leave("leader-1"); !errors.Is(err, ErrLeaderCannotLeave) {
+	if err := r.Leave("leader-1", testNow); !errors.Is(err, ErrLeaderCannotLeave) {
 		t.Errorf("Leave(leader): err = %v, want ErrLeaderCannotLeave", err)
 	}
 	if !slices.Contains(r.Members, "leader-1") {
 		t.Error("leader was removed after a refused Leave")
+	}
+}
+
+// TestJoinAndLeaveRefusedAfterStart ensures the fireteam is locked once the
+// raid starts: from the start time on, Join and Leave fail with ErrStarted
+// and the fireteam is unchanged.
+func TestJoinAndLeaveRefusedAfterStart(t *testing.T) {
+	r, err := Schedule("Last Wish", testStart, "leader-1", testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Join("u2", testNow); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, now := range []time.Time{testStart, testStart.Add(time.Minute)} {
+		if err := r.Join("u3", now); !errors.Is(err, ErrStarted) {
+			t.Errorf("Join at %v (start %v): err = %v, want ErrStarted", now, testStart, err)
+		}
+		if err := r.Leave("u2", now); !errors.Is(err, ErrStarted) {
+			t.Errorf("Leave at %v (start %v): err = %v, want ErrStarted", now, testStart, err)
+		}
+	}
+	if want := []string{"leader-1", "u2"}; !slices.Equal(r.Members, want) {
+		t.Errorf("Members = %v, want %v", r.Members, want)
+	}
+
+	if err := r.Join("u3", testStart.Add(-time.Second)); err != nil {
+		t.Errorf("Join one second before start: %v", err)
 	}
 }

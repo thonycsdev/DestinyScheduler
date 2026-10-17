@@ -21,6 +21,9 @@ func TestMain(m *testing.M) { os.Exit(dbtest.Run(m)) }
 
 var start = time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC)
 
+// beforeStart is the "current time" for joins and leaves on raids at start.
+var beforeStart = start.Add(-time.Hour)
+
 // setup returns a repository on a freshly emptied database.
 func setup(t *testing.T) (*raidrepo.Repository, *pgxpool.Pool) {
 	t.Helper()
@@ -40,7 +43,7 @@ func create(t *testing.T, repo *raidrepo.Repository, startsAt time.Time, members
 		t.Fatalf("Create: %v", err)
 	}
 	for _, m := range members {
-		if created, err = repo.Join(context.Background(), created.ID, m); err != nil {
+		if created, err = repo.Join(context.Background(), created.ID, m, startsAt.Add(-time.Hour)); err != nil {
 			t.Fatalf("Join(%q): %v", m, err)
 		}
 	}
@@ -111,7 +114,7 @@ func TestJoinAndLeavePersist(t *testing.T) {
 		t.Errorf("after joins, Members = %v, want %v", got.Members, want)
 	}
 
-	left, err := repo.Leave(ctx, r.ID, "u2")
+	left, err := repo.Leave(ctx, r.ID, "u2", beforeStart)
 	if err != nil {
 		t.Fatalf("Leave: %v", err)
 	}
@@ -123,19 +126,19 @@ func TestJoinAndLeavePersist(t *testing.T) {
 		t.Errorf("after leave, stored Members = %v, want %v", got.Members, want)
 	}
 
-	if _, err := repo.Join(ctx, r.ID, "u3"); !errors.Is(err, domain.ErrDuplicateMember) {
+	if _, err := repo.Join(ctx, r.ID, "u3", beforeStart); !errors.Is(err, domain.ErrDuplicateMember) {
 		t.Errorf("Join(existing): err = %v, want ErrDuplicateMember", err)
 	}
-	if _, err := repo.Leave(ctx, r.ID, "leader-1"); !errors.Is(err, domain.ErrLeaderCannotLeave) {
+	if _, err := repo.Leave(ctx, r.ID, "leader-1", beforeStart); !errors.Is(err, domain.ErrLeaderCannotLeave) {
 		t.Errorf("Leave(leader): err = %v, want ErrLeaderCannotLeave", err)
 	}
-	if _, err := repo.Leave(ctx, r.ID, "u9"); !errors.Is(err, domain.ErrNotMember) {
+	if _, err := repo.Leave(ctx, r.ID, "u9", beforeStart); !errors.Is(err, domain.ErrNotMember) {
 		t.Errorf("Leave(non-member): err = %v, want ErrNotMember", err)
 	}
-	if _, err := repo.Join(ctx, "0199f3a0-0000-7000-8000-000000000000", "u4"); !errors.Is(err, raidrepo.ErrNotFound) {
+	if _, err := repo.Join(ctx, "0199f3a0-0000-7000-8000-000000000000", "u4", beforeStart); !errors.Is(err, raidrepo.ErrNotFound) {
 		t.Errorf("Join(unknown raid): err = %v, want ErrNotFound", err)
 	}
-	if _, err := repo.Leave(ctx, "not-a-uuid", "u3"); !errors.Is(err, raidrepo.ErrNotFound) {
+	if _, err := repo.Leave(ctx, "not-a-uuid", "u3", beforeStart); !errors.Is(err, raidrepo.ErrNotFound) {
 		t.Errorf("Leave(malformed id): err = %v, want ErrNotFound", err)
 	}
 }
@@ -145,7 +148,7 @@ func TestJoinFullRaid(t *testing.T) {
 	repo, pool := setup(t)
 	r := create(t, repo, start, "u2", "u3", "u4", "u5", "u6")
 
-	if _, err := repo.Join(context.Background(), r.ID, "u7"); !errors.Is(err, domain.ErrFull) {
+	if _, err := repo.Join(context.Background(), r.ID, "u7", beforeStart); !errors.Is(err, domain.ErrFull) {
 		t.Errorf("Join as 7th: err = %v, want ErrFull", err)
 	}
 	if n := memberCount(t, pool, r.ID); n != domain.FireteamSize {
@@ -163,7 +166,7 @@ func TestConcurrentJoins(t *testing.T) {
 	errs := make([]error, 10)
 	for i := range errs {
 		wg.Go(func() {
-			_, errs[i] = repo.Join(context.Background(), r.ID, fmt.Sprintf("racer-%d", i))
+			_, errs[i] = repo.Join(context.Background(), r.ID, fmt.Sprintf("racer-%d", i), beforeStart)
 		})
 	}
 	wg.Wait()
@@ -251,5 +254,23 @@ func TestListUpcoming(t *testing.T) {
 	}
 	if want := []string{"leader-1", "u2"}; !slices.Equal(got[0].Members, want) {
 		t.Errorf("first raid Members = %v, want %v", got[0].Members, want)
+	}
+}
+
+// TestJoinAndLeaveRefusedAfterStart ensures the repository passes the current
+// time through, so the domain's "already started" rule applies to stored raids.
+func TestJoinAndLeaveRefusedAfterStart(t *testing.T) {
+	repo, pool := setup(t)
+	ctx := context.Background()
+	r := create(t, repo, start, "u2")
+
+	if _, err := repo.Join(ctx, r.ID, "u3", start); !errors.Is(err, domain.ErrStarted) {
+		t.Errorf("Join at start: err = %v, want ErrStarted", err)
+	}
+	if _, err := repo.Leave(ctx, r.ID, "u2", start); !errors.Is(err, domain.ErrStarted) {
+		t.Errorf("Leave at start: err = %v, want ErrStarted", err)
+	}
+	if n := memberCount(t, pool, r.ID); n != 2 {
+		t.Errorf("stored members = %d, want 2", n)
 	}
 }
