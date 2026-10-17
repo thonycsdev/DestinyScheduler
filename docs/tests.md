@@ -12,3 +12,4 @@ Run one with `go test ./internal/raid -run <TestName> -v`.
 | `TestScheduleRaidRejectsMoreThanSixMembers` | Scheduling with more than 6 members fails with `ErrFull` (Destiny 2 fireteam limit). | `feature/schedule-raid` |
 | `TestScheduleRaidRejectsUnknownRaid` | Only raids in `raid.Names` can be scheduled; an unknown or empty name fails with `ErrUnknownRaid`. | `feature/known-raids` |
 | `TestScheduleRaidAcceptsEveryKnownRaid` | Every raid in `raid.Names` is accepted, so the list and the validation stay in sync. | `feature/known-raids` |
+| `TestScheduleRaidRequiresAtLeastOneMember` | Scheduling with a nil or empty member list fails with `ErrNoMembers`. | `feature/require-members` |

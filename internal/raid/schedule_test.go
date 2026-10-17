@@ -78,3 +78,14 @@ func TestScheduleRaidAcceptsEveryKnownRaid(t *testing.T) {
 		}
 	}
 }
+
+// TestScheduleRaidRequiresAtLeastOneMember ensures a raid can't be scheduled
+// with an empty fireteam; at minimum the person scheduling it is a member.
+func TestScheduleRaidRequiresAtLeastOneMember(t *testing.T) {
+	for _, members := range [][]string{nil, {}} {
+		_, err := Schedule("Last Wish", time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), members)
+		if !errors.Is(err, ErrNoMembers) {
+			t.Errorf("Schedule with members %#v: err = %v, want ErrNoMembers", members, err)
+		}
+	}
+}

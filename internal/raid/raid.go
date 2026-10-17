@@ -28,6 +28,7 @@ var Names = []string{
 var (
 	ErrFull        = errors.New("fireteam is full (max 6 members)")
 	ErrUnknownRaid = errors.New("unknown raid")
+	ErrNoMembers   = errors.New("a raid needs at least one member")
 )
 
 // Raid is a scheduled raid and its fireteam.
@@ -42,6 +43,9 @@ type Raid struct {
 func Schedule(name string, start time.Time, members []string) (Raid, error) {
 	if !slices.Contains(Names, name) {
 		return Raid{}, fmt.Errorf("%w: %q", ErrUnknownRaid, name)
+	}
+	if len(members) == 0 {
+		return Raid{}, ErrNoMembers
 	}
 	if len(members) > FireteamSize {
 		return Raid{}, ErrFull
