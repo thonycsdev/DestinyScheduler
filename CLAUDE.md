@@ -20,6 +20,7 @@ Layers:
 docker compose up -d --wait                       # local Postgres 18 (credentials from .env.development)
 go run ./cmd/migrate up                           # apply migrations (also: down, status)
 go run ./cmd/bot                                  # run the bot (needs DISCORD_TOKEN)
+docker build --platform linux/arm64 -t destiny-bot .  # production image (distroless, ~5 MB)
 go test ./...                                     # run all tests (database tests need Docker running)
 go test ./internal/raid -run TestScheduleRaid -v  # run a single test
 go vet ./...

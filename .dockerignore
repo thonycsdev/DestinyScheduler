@@ -1,0 +1,5 @@
+# Never send local secrets into the build context.
+.env
+.git
+.github
+docs
