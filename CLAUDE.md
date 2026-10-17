@@ -4,15 +4,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-DestinyScheduler is a Discord bot, written in Go, that lets a user schedule a Destiny 2 raid and shows the raid time converted into each fireteam member's local time zone/region. Raid times are stored in UTC. The Discord layer (planned: `github.com/bwmarrin/discordgo`) isn't built yet; the domain logic lives in `internal/raid`, which has no Discord dependency.
+DestinyScheduler is a Discord bot, written in Go, that lets a user schedule a Destiny 2 raid and shows the raid time converted into each fireteam member's local time zone/region. Raid times are stored in UTC. The Discord layer (planned: `github.com/bwmarrin/discordgo`) isn't built yet.
+
+Layers:
+- `internal/raid`: pure domain rules (scheduling, fireteam of 6, join/leave). No database or Discord imports.
+- `internal/database`: Postgres connection (pgx v5 pool) and the versioned schema. Migrations are goose SQL files in `internal/database/migrations/`, embedded into the binary. CI applies them on pushes to `master`; the bot only calls `CheckSchema` on startup and refuses to run if the database is behind.
+- `internal/repository/<domain>`: one package per domain that saves and loads it, using `internal/database`.
+- `internal/config`: settings, read with precedence real env var > `.env` (git-ignored, local secrets) > `.env.development` (committed dev defaults). Never commit `.env`.
 
 ## Commands
 
 ```sh
-go test ./...                                     # run all tests
+docker compose up -d --wait                       # local Postgres 18 (credentials from .env.development)
+go run ./cmd/migrate up                           # apply migrations (also: down, status)
+go test ./...                                     # run all tests (database tests need Docker running)
 go test ./internal/raid -run TestScheduleRaid -v  # run a single test
 go vet ./...
 ```
+
+New migration: add `internal/database/migrations/NNNNN_description.sql` with `-- +goose Up` and `-- +goose Down` sections; `TestMigrationsDownAndUp` checks it rolls back.
 
 ## Tests
 

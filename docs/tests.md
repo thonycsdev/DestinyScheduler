@@ -27,3 +27,13 @@ Run one with `go test ./internal/<package> -run <TestName> -v`.
 | `TestLoadDoesNotModifyEnvironment` | Values read from env files are not written into the process environment. | `feature/env-config` |
 | `TestLoadRequiresDatabaseURL` | No `DATABASE_URL` anywhere fails with `ErrMissingDatabaseURL`; missing env files alone are not an error (CI/production have none). | `feature/env-config` |
 | `TestDevelopmentEnvMatchesCompose` | The committed `.env.development` `DATABASE_URL` uses the same user, password and database as `POSTGRES_*` (which `docker-compose.yml` creates the container with) and points at `localhost:5432`. | `feature/env-config` |
+
+## internal/database
+
+These tests need Docker running. `dbtest.Run` (called from `TestMain`) starts one `postgres:18` container per test package via testcontainers-go and applies every migration from empty; each test then calls `dbtest.Pool(t)`, which `TRUNCATE`s every table except `goose_db_version` first.
+
+| Test | Requirement | Branch |
+|---|---|---|
+| `TestMigrationsCreateRaidSchema` | `raids.id` defaults to a UUIDv7; inserting the same `(raid_id, user_id)` into `raid_members` twice is a unique violation (23505); deleting a raid deletes its members. | `feature/database-migrations` |
+| `TestMigrationsDownAndUp` | Every migration rolls back to version 0 (tables gone) and re-applies; `CheckSchema` returns `ErrSchemaBehind` on a database that's behind and nil when current (what the bot checks on startup). | `feature/database-migrations` |
+| `TestPoolResetsBetweenTests` | `dbtest.Pool` empties all tables but keeps the migrated schema. | `feature/database-migrations` |
