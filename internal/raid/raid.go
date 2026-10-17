@@ -30,6 +30,7 @@ var (
 	ErrUnknownRaid     = errors.New("unknown raid")
 	ErrNoMembers       = errors.New("a raid needs at least one member")
 	ErrDuplicateMember = errors.New("member listed more than once")
+	ErrInPast          = errors.New("raid time is in the past")
 )
 
 // Raid is a scheduled raid and its fireteam.
@@ -40,10 +41,13 @@ type Raid struct {
 }
 
 // Schedule creates a raid for the given fireteam. The start time may be in any
-// time zone; it is stored in UTC.
-func Schedule(name string, start time.Time, members []string) (Raid, error) {
+// time zone; it is stored in UTC. It must be after now.
+func Schedule(name string, start time.Time, members []string, now time.Time) (Raid, error) {
 	if !slices.Contains(Names, name) {
 		return Raid{}, fmt.Errorf("%w: %q", ErrUnknownRaid, name)
+	}
+	if !start.After(now) {
+		return Raid{}, ErrInPast
 	}
 	if len(members) == 0 {
 		return Raid{}, ErrNoMembers

@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+// testNow is the fixed "current time" passed to Schedule so tests don't depend
+// on the wall clock. Raids in these tests start after it.
+var testNow = time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+
 // TestScheduleRaid covers the core requirement: a scheduled raid contains the
 // raid in question, the fireteam members, and the start time stored in UTC
 // (the "universal time" every member's local time is derived from).
@@ -19,7 +23,7 @@ func TestScheduleRaid(t *testing.T) {
 	start := time.Date(2026, 10, 20, 21, 0, 0, 0, saoPaulo)
 	members := []string{"Anthony", "Cayde", "Ikora", "Zavala", "Saint", "Osiris"}
 
-	r, err := Schedule("Last Wish", start, members)
+	r, err := Schedule("Last Wish", start, members, testNow)
 	if err != nil {
 		t.Fatalf("Schedule: %v", err)
 	}
@@ -52,7 +56,7 @@ func TestScheduleRaid(t *testing.T) {
 func TestScheduleRaidRejectsMoreThanSixMembers(t *testing.T) {
 	members := []string{"Anthony", "Cayde", "Ikora", "Zavala", "Saint", "Osiris", "Eris"}
 
-	_, err := Schedule("Last Wish", time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), members)
+	_, err := Schedule("Last Wish", time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), members, testNow)
 	if !errors.Is(err, ErrFull) {
 		t.Errorf("Schedule with 7 members: err = %v, want ErrFull", err)
 	}
@@ -62,7 +66,7 @@ func TestScheduleRaidRejectsMoreThanSixMembers(t *testing.T) {
 // Names list) can be scheduled, so typos and made-up raids are caught early.
 func TestScheduleRaidRejectsUnknownRaid(t *testing.T) {
 	for _, name := range []string{"Raid of Mars", ""} {
-		_, err := Schedule(name, time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), []string{"Anthony"})
+		_, err := Schedule(name, time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), []string{"Anthony"}, testNow)
 		if !errors.Is(err, ErrUnknownRaid) {
 			t.Errorf("Schedule(%q): err = %v, want ErrUnknownRaid", name, err)
 		}
@@ -73,7 +77,7 @@ func TestScheduleRaidRejectsUnknownRaid(t *testing.T) {
 // scheduled, so the list and the validation can't drift apart.
 func TestScheduleRaidAcceptsEveryKnownRaid(t *testing.T) {
 	for _, name := range Names {
-		if _, err := Schedule(name, time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), []string{"Anthony"}); err != nil {
+		if _, err := Schedule(name, time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), []string{"Anthony"}, testNow); err != nil {
 			t.Errorf("Schedule(%q): %v", name, err)
 		}
 	}
@@ -83,7 +87,7 @@ func TestScheduleRaidAcceptsEveryKnownRaid(t *testing.T) {
 // with an empty fireteam; at minimum the person scheduling it is a member.
 func TestScheduleRaidRequiresAtLeastOneMember(t *testing.T) {
 	for _, members := range [][]string{nil, {}} {
-		_, err := Schedule("Last Wish", time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), members)
+		_, err := Schedule("Last Wish", time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), members, testNow)
 		if !errors.Is(err, ErrNoMembers) {
 			t.Errorf("Schedule with members %#v: err = %v, want ErrNoMembers", members, err)
 		}
@@ -93,8 +97,19 @@ func TestScheduleRaidRequiresAtLeastOneMember(t *testing.T) {
 // TestScheduleRaidRejectsDuplicateMembers ensures one player can't take two
 // fireteam slots by being listed twice.
 func TestScheduleRaidRejectsDuplicateMembers(t *testing.T) {
-	_, err := Schedule("Last Wish", time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), []string{"Anthony", "Cayde", "Anthony"})
+	_, err := Schedule("Last Wish", time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), []string{"Anthony", "Cayde", "Anthony"}, testNow)
 	if !errors.Is(err, ErrDuplicateMember) {
 		t.Errorf("err = %v, want ErrDuplicateMember", err)
+	}
+}
+
+// TestScheduleRaidRejectsPastTimes ensures a raid can't be scheduled at or
+// before the current time.
+func TestScheduleRaidRejectsPastTimes(t *testing.T) {
+	for _, start := range []time.Time{testNow.Add(-time.Hour), testNow} {
+		_, err := Schedule("Last Wish", start, []string{"Anthony"}, testNow)
+		if !errors.Is(err, ErrInPast) {
+			t.Errorf("Schedule at %v (now %v): err = %v, want ErrInPast", start, testNow, err)
+		}
 	}
 }

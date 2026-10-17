@@ -14,3 +14,4 @@ Run one with `go test ./internal/raid -run <TestName> -v`.
 | `TestScheduleRaidAcceptsEveryKnownRaid` | Every raid in `raid.Names` is accepted, so the list and the validation stay in sync. | `feature/known-raids` |
 | `TestScheduleRaidRequiresAtLeastOneMember` | Scheduling with a nil or empty member list fails with `ErrNoMembers`. | `feature/require-members` |
 | `TestScheduleRaidRejectsDuplicateMembers` | A member listed twice fails with `ErrDuplicateMember`, so one player can't take two slots. | `feature/unique-members` |
+| `TestScheduleRaidRejectsPastTimes` | A start time at or before `now` fails with `ErrInPast`. `Schedule` takes `now` explicitly; tests pass the fixed `testNow` (2026-10-17 12:00 UTC). | `feature/reject-past-times` |
