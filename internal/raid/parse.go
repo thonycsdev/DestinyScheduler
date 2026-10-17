@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	// Embed the tz database so time zones load in minimal container images
+	// (distroless) that have no /usr/share/zoneinfo.
+	_ "time/tzdata"
 )
 
 // ParseStart interprets user input — a date (YYYY-MM-DD), a 24h time (HH:MM)

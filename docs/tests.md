@@ -72,3 +72,7 @@ Needs Docker: the package's `TestMain` runs `dbtest.Run`, because handlers are t
 | `TestButtonErrorsArePrivate` | Already in, not in, leader leaving, raid gone, raid full, already started, and unrecognized button IDs each get a private message and no message update. | `feature/bot-handlers` |
 | `TestCancelButton` | A non-leader without Manage Messages can't cancel (raid kept); the leader can, even after the start time; a moderator (`CanManageMessages`) can. Cancelling deletes the raid and updates the message to the cancelled version with no buttons. | `feature/bot-handlers` |
 | `TestListRaids` | `/raid list` replies privately: "no upcoming raids" when empty, otherwise raids soonest first with Discord timestamps and `n/6`. | `feature/bot-handlers` |
+| `TestTimezoneChoicesMatchCities` | Time zone autocomplete finds a zone from part of its city, ignoring case, spaces vs underscores and accents (`São Paulo` → `America/Sao_Paulo`). | `feature/timezone-autocomplete` |
+| `TestTimezoneChoicesRankCityPrefixFirst` | Zones whose city starts with the query come first (`paris` → `Europe/Paris`). | `feature/timezone-autocomplete` |
+| `TestTimezoneChoicesLimit` | At most 25 suggestions (Discord's limit); an empty query suggests common zones incl. `UTC` and `America/Sao_Paulo`; no match gives none. | `feature/timezone-autocomplete` |
+| `TestTimezoneChoicesAreLoadable` | Every suggested zone (the generated `zones` list and `commonZones`) loads with `time.LoadLocation`. | `feature/timezone-autocomplete` |
