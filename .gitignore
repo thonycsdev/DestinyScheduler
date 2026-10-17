@@ -1,0 +1,2 @@
+# Local secrets and overrides. Never commit; development defaults live in .env.development.
+.env

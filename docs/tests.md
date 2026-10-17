@@ -2,7 +2,7 @@
 
 Every test in the repo, the requirement it protects, and the branch that introduced it. Keep this in sync when adding or changing tests.
 
-Run one with `go test ./internal/raid -run <TestName> -v`.
+Run one with `go test ./internal/<package> -run <TestName> -v`.
 
 ## internal/raid
 
@@ -18,3 +18,12 @@ Run one with `go test ./internal/raid -run <TestName> -v`.
 | `TestParseStartHandlesDaylightSaving` | Uses the UTC offset in effect on the raid's date, across 2026 DST changes in `Europe/London` (Mar 29, Oct 25) and `America/New_York` (Nov 1). Passed without code changes (Go's tz database handles it); verified it fails if `ParseStart` used a fixed offset. | `feature/daylight-saving` |
 | `TestJoinRaid` | After scheduling, `Raid.Join` adds members up to 6; the 7th fails with `ErrFull` and leaves the fireteam unchanged; an existing member (including the leader) re-joining fails with `ErrDuplicateMember`. Since `Schedule` no longer takes a member list, this is now the only place the 6-player cap and the no-duplicates rule are enforced. | `feature/join-raid` |
 | `TestLeaveRaid` | `Raid.Leave` removes a member and frees their slot for someone else; a non-member leaving fails with `ErrNotMember`; the leader leaving fails with `ErrLeaderCannotLeave` and stays in the fireteam. | `feature/leave-raid` |
+
+## internal/config
+
+| Test | Requirement | Branch |
+|---|---|---|
+| `TestLoadPriority` | Precedence is real environment variable > `.env` (local, git-ignored) > `.env.development` (committed defaults). | `feature/env-config` |
+| `TestLoadDoesNotModifyEnvironment` | Values read from env files are not written into the process environment. | `feature/env-config` |
+| `TestLoadRequiresDatabaseURL` | No `DATABASE_URL` anywhere fails with `ErrMissingDatabaseURL`; missing env files alone are not an error (CI/production have none). | `feature/env-config` |
+| `TestDevelopmentEnvMatchesCompose` | The committed `.env.development` `DATABASE_URL` uses the same user, password and database as `POSTGRES_*` (which `docker-compose.yml` creates the container with) and points at `localhost:5432`. | `feature/env-config` |
