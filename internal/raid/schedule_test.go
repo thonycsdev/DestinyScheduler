@@ -11,9 +11,13 @@ import (
 // on the wall clock. Raids in these tests start after it.
 var testNow = time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
 
+// testStart is a valid raid start time after testNow.
+var testStart = time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC)
+
 // TestScheduleRaid covers the core requirement: a scheduled raid contains the
-// raid in question, the fireteam members, and the start time stored in UTC
-// (the "universal time" every member's local time is derived from).
+// raid in question, its leader as the first (and only) fireteam member, and
+// the start time stored in UTC (the "universal time" every member's local
+// time is derived from).
 func TestScheduleRaid(t *testing.T) {
 	saoPaulo, err := time.LoadLocation("America/Sao_Paulo")
 	if err != nil {
@@ -21,9 +25,8 @@ func TestScheduleRaid(t *testing.T) {
 	}
 	// 21:00 in São Paulo (UTC-3) is 00:00 UTC the next day.
 	start := time.Date(2026, 10, 20, 21, 0, 0, 0, saoPaulo)
-	members := []string{"Anthony", "Cayde", "Ikora", "Zavala", "Saint", "Osiris"}
 
-	r, err := Schedule("Last Wish", start, members, testNow)
+	r, err := Schedule("Last Wish", start, "leader-1", testNow)
 	if err != nil {
 		t.Fatalf("Schedule: %v", err)
 	}
@@ -34,9 +37,12 @@ func TestScheduleRaid(t *testing.T) {
 		}
 	})
 
-	t.Run("contains the fireteam members", func(t *testing.T) {
-		if !slices.Equal(r.Members, members) {
-			t.Errorf("Members = %v, want %v", r.Members, members)
+	t.Run("leader is the only member", func(t *testing.T) {
+		if r.LeaderID != "leader-1" {
+			t.Errorf("LeaderID = %q, want %q", r.LeaderID, "leader-1")
+		}
+		if want := []string{"leader-1"}; !slices.Equal(r.Members, want) {
+			t.Errorf("Members = %v, want %v", r.Members, want)
 		}
 	})
 
@@ -49,16 +55,20 @@ func TestScheduleRaid(t *testing.T) {
 			t.Errorf("StartsAt = %v, want %v", r.StartsAt, want)
 		}
 	})
+
+	t.Run("not yet persisted or posted", func(t *testing.T) {
+		if r.ID != "" || r.ChannelID != "" || r.MessageID != "" {
+			t.Errorf("ID/ChannelID/MessageID = %q/%q/%q, want all empty", r.ID, r.ChannelID, r.MessageID)
+		}
+	})
 }
 
-// TestScheduleRaidRejectsMoreThanSixMembers enforces the Destiny 2 raid
-// fireteam limit of 6 players at scheduling time.
-func TestScheduleRaidRejectsMoreThanSixMembers(t *testing.T) {
-	members := []string{"Anthony", "Cayde", "Ikora", "Zavala", "Saint", "Osiris", "Eris"}
-
-	_, err := Schedule("Last Wish", time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), members, testNow)
-	if !errors.Is(err, ErrFull) {
-		t.Errorf("Schedule with 7 members: err = %v, want ErrFull", err)
+// TestScheduleRaidRequiresLeader ensures every raid has a leader: the person
+// scheduling it, who is always part of the fireteam.
+func TestScheduleRaidRequiresLeader(t *testing.T) {
+	_, err := Schedule("Last Wish", testStart, "", testNow)
+	if !errors.Is(err, ErrNoLeader) {
+		t.Errorf("Schedule with empty leader: err = %v, want ErrNoLeader", err)
 	}
 }
 
@@ -66,7 +76,7 @@ func TestScheduleRaidRejectsMoreThanSixMembers(t *testing.T) {
 // Names list) can be scheduled, so typos and made-up raids are caught early.
 func TestScheduleRaidRejectsUnknownRaid(t *testing.T) {
 	for _, name := range []string{"Raid of Mars", ""} {
-		_, err := Schedule(name, time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), []string{"Anthony"}, testNow)
+		_, err := Schedule(name, testStart, "leader-1", testNow)
 		if !errors.Is(err, ErrUnknownRaid) {
 			t.Errorf("Schedule(%q): err = %v, want ErrUnknownRaid", name, err)
 		}
@@ -77,29 +87,9 @@ func TestScheduleRaidRejectsUnknownRaid(t *testing.T) {
 // scheduled, so the list and the validation can't drift apart.
 func TestScheduleRaidAcceptsEveryKnownRaid(t *testing.T) {
 	for _, name := range Names {
-		if _, err := Schedule(name, time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), []string{"Anthony"}, testNow); err != nil {
+		if _, err := Schedule(name, testStart, "leader-1", testNow); err != nil {
 			t.Errorf("Schedule(%q): %v", name, err)
 		}
-	}
-}
-
-// TestScheduleRaidRequiresAtLeastOneMember ensures a raid can't be scheduled
-// with an empty fireteam; at minimum the person scheduling it is a member.
-func TestScheduleRaidRequiresAtLeastOneMember(t *testing.T) {
-	for _, members := range [][]string{nil, {}} {
-		_, err := Schedule("Last Wish", time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), members, testNow)
-		if !errors.Is(err, ErrNoMembers) {
-			t.Errorf("Schedule with members %#v: err = %v, want ErrNoMembers", members, err)
-		}
-	}
-}
-
-// TestScheduleRaidRejectsDuplicateMembers ensures one player can't take two
-// fireteam slots by being listed twice.
-func TestScheduleRaidRejectsDuplicateMembers(t *testing.T) {
-	_, err := Schedule("Last Wish", time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), []string{"Anthony", "Cayde", "Anthony"}, testNow)
-	if !errors.Is(err, ErrDuplicateMember) {
-		t.Errorf("err = %v, want ErrDuplicateMember", err)
 	}
 }
 
@@ -107,7 +97,7 @@ func TestScheduleRaidRejectsDuplicateMembers(t *testing.T) {
 // before the current time.
 func TestScheduleRaidRejectsPastTimes(t *testing.T) {
 	for _, start := range []time.Time{testNow.Add(-time.Hour), testNow} {
-		_, err := Schedule("Last Wish", start, []string{"Anthony"}, testNow)
+		_, err := Schedule("Last Wish", start, "leader-1", testNow)
 		if !errors.Is(err, ErrInPast) {
 			t.Errorf("Schedule at %v (now %v): err = %v, want ErrInPast", start, testNow, err)
 		}
@@ -116,28 +106,31 @@ func TestScheduleRaidRejectsPastTimes(t *testing.T) {
 
 // TestJoinRaid covers members joining after the raid is scheduled: players can
 // join until the fireteam has 6, the 7th is refused with ErrFull, and someone
-// already in the fireteam can't join again.
+// already in the fireteam (including the leader) can't join again.
 func TestJoinRaid(t *testing.T) {
-	r, err := Schedule("Last Wish", time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), []string{"Anthony", "Cayde"}, testNow)
+	r, err := Schedule("Last Wish", testStart, "leader-1", testNow)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := r.Join("Cayde"); !errors.Is(err, ErrDuplicateMember) {
-		t.Errorf("Join(existing member): err = %v, want ErrDuplicateMember", err)
+	if err := r.Join("leader-1"); !errors.Is(err, ErrDuplicateMember) {
+		t.Errorf("Join(leader): err = %v, want ErrDuplicateMember", err)
 	}
 
-	for _, m := range []string{"Ikora", "Zavala", "Saint", "Osiris"} {
+	for _, m := range []string{"u2", "u3", "u4", "u5", "u6"} {
 		if err := r.Join(m); err != nil {
 			t.Fatalf("Join(%q) with %d members: %v", m, len(r.Members), err)
 		}
 	}
-	want := []string{"Anthony", "Cayde", "Ikora", "Zavala", "Saint", "Osiris"}
+	want := []string{"leader-1", "u2", "u3", "u4", "u5", "u6"}
 	if !slices.Equal(r.Members, want) {
 		t.Errorf("Members = %v, want %v", r.Members, want)
 	}
 
-	if err := r.Join("Eris"); !errors.Is(err, ErrFull) {
+	if err := r.Join("u2"); !errors.Is(err, ErrDuplicateMember) {
+		t.Errorf("Join(existing member): err = %v, want ErrDuplicateMember", err)
+	}
+	if err := r.Join("u7"); !errors.Is(err, ErrFull) {
 		t.Errorf("Join as 7th member: err = %v, want ErrFull", err)
 	}
 	if len(r.Members) != FireteamSize {

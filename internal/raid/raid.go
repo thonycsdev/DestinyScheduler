@@ -28,42 +28,39 @@ var Names = []string{
 var (
 	ErrFull            = errors.New("fireteam is full (max 6 members)")
 	ErrUnknownRaid     = errors.New("unknown raid")
-	ErrNoMembers       = errors.New("a raid needs at least one member")
-	ErrDuplicateMember = errors.New("member listed more than once")
+	ErrNoLeader        = errors.New("a raid needs a leader")
+	ErrDuplicateMember = errors.New("already in the fireteam")
 	ErrInPast          = errors.New("raid time is in the past")
 )
 
 // Raid is a scheduled raid and its fireteam.
 type Raid struct {
-	Name     string
-	StartsAt time.Time // always UTC
-	Members  []string
+	ID        string // assigned when stored; empty until then
+	Name      string
+	StartsAt  time.Time // always UTC
+	LeaderID  string    // Discord user ID of whoever scheduled the raid
+	Members   []string  // Discord user IDs in join order; the leader is first
+	ChannelID string    // where the raid message was posted; empty until then
+	MessageID string
 }
 
-// Schedule creates a raid for the given fireteam. The start time may be in any
-// time zone; it is stored in UTC. It must be after now.
-func Schedule(name string, start time.Time, members []string, now time.Time) (Raid, error) {
+// Schedule creates a raid led by leaderID, who becomes its first member. The
+// start time may be in any time zone; it is stored in UTC. It must be after now.
+func Schedule(name string, start time.Time, leaderID string, now time.Time) (Raid, error) {
 	if !slices.Contains(Names, name) {
 		return Raid{}, fmt.Errorf("%w: %q", ErrUnknownRaid, name)
 	}
 	if !start.After(now) {
 		return Raid{}, ErrInPast
 	}
-	if len(members) == 0 {
-		return Raid{}, ErrNoMembers
-	}
-	if len(members) > FireteamSize {
-		return Raid{}, ErrFull
-	}
-	for i, m := range members {
-		if slices.Contains(members[:i], m) {
-			return Raid{}, fmt.Errorf("%w: %q", ErrDuplicateMember, m)
-		}
+	if leaderID == "" {
+		return Raid{}, ErrNoLeader
 	}
 	return Raid{
 		Name:     name,
 		StartsAt: start.UTC(),
-		Members:  slices.Clone(members),
+		LeaderID: leaderID,
+		Members:  []string{leaderID},
 	}, nil
 }
 
