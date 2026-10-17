@@ -57,6 +57,8 @@ Needs Docker (uses `dbtest`, see above). The package is named `raid`; tests impo
 
 ## internal/bot
 
+Needs Docker: the package's `TestMain` runs `dbtest.Run`, because handlers are tested against the real raid repository (no mocks).
+
 | Test | Requirement | Branch |
 |---|---|---|
 | `TestRaidMessageShowsTimeInEachViewersZone` | The raid message shows the start as Discord timestamps `<t:UNIX:F>` and `<t:UNIX:R>`, which each viewer sees in their own time zone (the README's core promise). Title is the raid name. | `feature/raid-message` |
@@ -64,3 +66,9 @@ Needs Docker (uses `dbtest`, see above). The package is named `raid`; tests impo
 | `TestRaidMessageButtons` | Buttons are Join, Leave, Cancel with IDs `raid:<action>:<raid id>`; Join is disabled when the fireteam is full. | `feature/raid-message` |
 | `TestCancelledMessage` | A cancelled raid's title says "Cancelled" with the raid name, keeps the When field, and has an empty non-nil component list (so editing removes the buttons). | `feature/raid-message` |
 | `TestParseCustomID` | `raid:<join\|leave\|cancel>:<id>` parses; empty, unknown action, other prefixes or missing ID are rejected. | `feature/raid-message` |
+| `TestCreateRaid` | `/raid create` turns date + time + time zone into a stored raid led by the user (21:00 São Paulo → 00:00 UTC) and replies with the public raid message and its `RaidID`; `RecordMessage` saves the posted channel/message IDs. | `feature/bot-handlers` |
+| `TestCreateRaidRejectsBadInput` | Unknown time zone, bad date format, past time or unknown raid gives a private explanation and stores nothing. | `feature/bot-handlers` |
+| `TestJoinAndLeaveButtons` | Join and Leave are saved and reply with an in-place update of the raid message showing the new count. | `feature/bot-handlers` |
+| `TestButtonErrorsArePrivate` | Already in, not in, leader leaving, raid gone, raid full, already started, and unrecognized button IDs each get a private message and no message update. | `feature/bot-handlers` |
+| `TestCancelButton` | A non-leader without Manage Messages can't cancel (raid kept); the leader can, even after the start time; a moderator (`CanManageMessages`) can. Cancelling deletes the raid and updates the message to the cancelled version with no buttons. | `feature/bot-handlers` |
+| `TestListRaids` | `/raid list` replies privately: "no upcoming raids" when empty, otherwise raids soonest first with Discord timestamps and `n/6`. | `feature/bot-handlers` |
