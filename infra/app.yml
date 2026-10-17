@@ -122,7 +122,8 @@ Resources:
       SecretString: set-me
 
   # The image tag CI deployed last. CI overwrites it; "none" means nothing
-  # has been deployed yet, so the bot service waits.
+  # has been deployed yet, so the bot service waits. Don't change this
+  # resource's properties: CloudFormation would reset the value to "none".
   ImageTagParameter:
     Type: AWS::SSM::Parameter
     Properties:

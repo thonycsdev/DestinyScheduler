@@ -28,7 +28,10 @@ go vet ./...
 docker run --rm -v "$PWD/infra:/infra:ro" python:3.13-slim sh -c 'pip install -q cfn-lint && cfn-lint --regions us-east-1 -- /infra/*.yml'
 ```
 
-CI (`.github/workflows/ci.yml`): `go vet` + `go test` on every PR and push to `master`; on pushes to `master` only, after tests pass, `go run ./cmd/migrate up` against the `DATABASE_URL` secret of the `PRD` GitHub environment (one run at a time). Lint the workflow with `go run github.com/rhysd/actionlint/cmd/actionlint@latest`.
+CI (`.github/workflows/ci.yml`):
+- Every PR and push to `master`: `go vet`, `go test` (including the infra template tests and shellcheck), `cfn-lint`, `actionlint`. PRs also build the image on `ubuntu-24.04-arm`.
+- Pushes to `master` only, one at a time, in the `PRD` environment: assume `vars.AWS_DEPLOY_ROLE_ARN` via OIDC → `cloudformation deploy` the app stack → read `DATABASE_URL` from Secrets Manager (`destiny-scheduler/database-url`) and `go run ./cmd/migrate up` → build and push the arm64 image tagged with the commit SHA → set `/destiny-scheduler/image-tag` → restart `destiny-bot` via SSM Run Command and require it to still be running 20s later.
+- Lint the workflow locally with `docker run --rm -v "$PWD:/repo" --workdir /repo rhysd/actionlint:latest` (bundles shellcheck for `run:` blocks).
 
 To run the bot locally, put the **test** Discord application's `DISCORD_TOKEN` and the test server's `DISCORD_GUILD_ID` in `.env` (git-ignored). With `DISCORD_GUILD_ID` set, commands register in that server only and update instantly; production leaves it unset and registers globally. Never run locally with the production token: two running copies both answer every click.
 

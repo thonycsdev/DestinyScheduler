@@ -111,6 +111,10 @@ Resources:
                 Resource:
                   - {"Fn::Sub": "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AppStackName}/*"}
                   - {"Fn::Sub": "arn:aws:cloudformation:${AWS::Region}:aws:transform/*"}
+              - Sid: ResolveAmiParameter
+                Effect: Allow
+                Action: ssm:GetParameters
+                Resource: {"Fn::Sub": "arn:aws:ssm:${AWS::Region}::parameter/aws/service/ami-amazon-linux-latest/*"}
               - Sid: PassExecutionRole
                 Effect: Allow
                 Action: iam:PassRole
