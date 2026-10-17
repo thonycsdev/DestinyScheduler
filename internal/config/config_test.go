@@ -119,3 +119,31 @@ func TestDevelopmentEnvMatchesCompose(t *testing.T) {
 		}
 	}
 }
+
+// TestLoadReadsDiscordSettings ensures the bot's Discord token and optional
+// development guild ID are read with the same precedence as DATABASE_URL.
+// They're optional for Load (cmd/migrate doesn't need them); cmd/bot requires
+// the token itself.
+func TestLoadReadsDiscordSettings(t *testing.T) {
+	unsetEnv(t, "DISCORD_GUILD_ID")
+	t.Setenv("DATABASE_URL", "postgres://x")
+	t.Setenv("DISCORD_TOKEN", "from-environment")
+	local := writeFile(t, t.TempDir(), ".env", "DISCORD_TOKEN=from-dotenv\nDISCORD_GUILD_ID=guild-1\n")
+
+	got, err := Load(local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DiscordToken != "from-environment" || got.DiscordGuildID != "guild-1" {
+		t.Errorf("DiscordToken/DiscordGuildID = %q/%q, want from-environment/guild-1", got.DiscordToken, got.DiscordGuildID)
+	}
+
+	unsetEnv(t, "DISCORD_TOKEN")
+	got, err = Load()
+	if err != nil {
+		t.Fatalf("Load without Discord settings: %v", err)
+	}
+	if got.DiscordToken != "" || got.DiscordGuildID != "" {
+		t.Errorf("got %+v, want empty Discord settings", got)
+	}
+}

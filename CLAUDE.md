@@ -4,12 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-DestinyScheduler is a Discord bot, written in Go, that lets a user schedule a Destiny 2 raid and shows the raid time converted into each fireteam member's local time zone/region. Raid times are stored in UTC. The Discord layer (planned: `github.com/bwmarrin/discordgo`) isn't built yet.
+DestinyScheduler is a Discord bot, written in Go, that lets a user schedule a Destiny 2 raid and shows the raid time converted into each fireteam member's local time zone/region. Raid times are stored in UTC and shown with Discord timestamps (`<t:UNIX:F>`), which Discord renders in each viewer's own time zone.
 
 Layers:
 - `internal/raid`: pure domain rules (scheduling, fireteam of 6, join/leave). No database or Discord imports.
 - `internal/database`: Postgres connection (pgx v5 pool) and the versioned schema. Migrations are goose SQL files in `internal/database/migrations/`, embedded into the binary. CI applies them on pushes to `master`; the bot only calls `CheckSchema` on startup and refuses to run if the database is behind.
 - `internal/repository/<domain>`: one package per domain that saves and loads it, using `internal/database`.
+- `internal/bot`: Discord layer. `Handler` methods (`Create`, `Button`, `List`) are plain functions from an input struct to a `Response`, tested against real Postgres; `Dispatch` in `discord.go` is the thin, untested discordgo adapter. Refused actions become private (ephemeral) replies; only unexpected errors are returned.
+- `cmd/bot`: entry point. Refuses to start if `DISCORD_TOKEN` is missing or `CheckSchema` fails.
 - `internal/config`: settings, read with precedence real env var > `.env` (git-ignored, local secrets) > `.env.development` (committed dev defaults). Never commit `.env`.
 
 ## Commands
@@ -17,12 +19,15 @@ Layers:
 ```sh
 docker compose up -d --wait                       # local Postgres 18 (credentials from .env.development)
 go run ./cmd/migrate up                           # apply migrations (also: down, status)
+go run ./cmd/bot                                  # run the bot (needs DISCORD_TOKEN)
 go test ./...                                     # run all tests (database tests need Docker running)
 go test ./internal/raid -run TestScheduleRaid -v  # run a single test
 go vet ./...
 ```
 
 CI (`.github/workflows/ci.yml`): `go vet` + `go test` on every PR and push to `master`; on pushes to `master` only, after tests pass, `go run ./cmd/migrate up` against the `DATABASE_URL` secret of the `PRD` GitHub environment (one run at a time). Lint the workflow with `go run github.com/rhysd/actionlint/cmd/actionlint@latest`.
+
+To run the bot locally, put the **test** Discord application's `DISCORD_TOKEN` and the test server's `DISCORD_GUILD_ID` in `.env` (git-ignored). With `DISCORD_GUILD_ID` set, commands register in that server only and update instantly; production leaves it unset and registers globally. Never run locally with the production token: two running copies both answer every click.
 
 New migration: add `internal/database/migrations/NNNNN_description.sql` with `-- +goose Up` and `-- +goose Down` sections; `TestMigrationsDownAndUp` checks it rolls back.
 

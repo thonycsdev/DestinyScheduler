@@ -19,6 +19,11 @@ var ErrMissingDatabaseURL = errors.New("DATABASE_URL is not set")
 // Config holds the bot's settings.
 type Config struct {
 	DatabaseURL string
+	// DiscordToken is the bot token. Required by cmd/bot only.
+	DiscordToken string
+	// DiscordGuildID, when set, registers commands in that one server only
+	// (instant; for the test application). Unset in production: global.
+	DiscordGuildID string
 }
 
 // Load reads settings from the process environment, then from files in
@@ -48,7 +53,11 @@ func Load(files ...string) (Config, error) {
 		return ""
 	}
 
-	c := Config{DatabaseURL: lookup("DATABASE_URL")}
+	c := Config{
+		DatabaseURL:    lookup("DATABASE_URL"),
+		DiscordToken:   lookup("DISCORD_TOKEN"),
+		DiscordGuildID: lookup("DISCORD_GUILD_ID"),
+	}
 	if c.DatabaseURL == "" {
 		return Config{}, ErrMissingDatabaseURL
 	}

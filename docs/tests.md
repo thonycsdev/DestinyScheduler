@@ -28,6 +28,7 @@ Run one with `go test ./internal/<package> -run <TestName> -v`.
 | `TestLoadDoesNotModifyEnvironment` | Values read from env files are not written into the process environment. | `feature/env-config` |
 | `TestLoadRequiresDatabaseURL` | No `DATABASE_URL` anywhere fails with `ErrMissingDatabaseURL`; missing env files alone are not an error (CI/production have none). | `feature/env-config` |
 | `TestDevelopmentEnvMatchesCompose` | The committed `.env.development` `DATABASE_URL` uses the same user, password and database as `POSTGRES_*` (which `docker-compose.yml` creates the container with) and points at `localhost:5432`. | `feature/env-config` |
+| `TestLoadReadsDiscordSettings` | `DISCORD_TOKEN` and optional `DISCORD_GUILD_ID` are read with the same precedence; both are optional for `Load` (`cmd/bot` requires the token itself). | `feature/discord-adapter` |
 
 ## internal/database
 
@@ -76,3 +77,6 @@ Needs Docker: the package's `TestMain` runs `dbtest.Run`, because handlers are t
 | `TestTimezoneChoicesRankCityPrefixFirst` | Zones whose city starts with the query come first (`paris` → `Europe/Paris`). | `feature/timezone-autocomplete` |
 | `TestTimezoneChoicesLimit` | At most 25 suggestions (Discord's limit); an empty query suggests common zones incl. `UTC` and `America/Sao_Paulo`; no match gives none. | `feature/timezone-autocomplete` |
 | `TestTimezoneChoicesAreLoadable` | Every suggested zone (the generated `zones` list and `commonZones`) loads with `time.LoadLocation`. | `feature/timezone-autocomplete` |
+| `TestCommandsDefinition` | `/raid` is guild-only, with subcommands `create` (required options raid → choices exactly `raid.Names`, date, time, timezone with autocomplete) and `list`. | `feature/discord-adapter` |
+| `TestReadInteractions` | The adapter reads the subcommand, `/raid create` options and user ID, the focused autocomplete text, and a button click's custom ID and Manage Messages permission from discordgo payloads. | `feature/discord-adapter` |
+| `TestInteractionResponse` | Responses map to a new message or an in-place update, ephemeral replies set the ephemeral flag, mentions never ping (empty allow list), and a cancelled update serializes `"components":[]` so the buttons are removed. | `feature/discord-adapter` |
