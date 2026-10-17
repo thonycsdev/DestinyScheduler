@@ -37,3 +37,18 @@ These tests need Docker running. `dbtest.Run` (called from `TestMain`) starts on
 | `TestMigrationsCreateRaidSchema` | `raids.id` defaults to a UUIDv7; inserting the same `(raid_id, user_id)` into `raid_members` twice is a unique violation (23505); deleting a raid deletes its members. | `feature/database-migrations` |
 | `TestMigrationsDownAndUp` | Every migration rolls back to version 0 (tables gone) and re-applies; `CheckSchema` returns `ErrSchemaBehind` on a database that's behind and nil when current (what the bot checks on startup). | `feature/database-migrations` |
 | `TestPoolResetsBetweenTests` | `dbtest.Pool` empties all tables but keeps the migrated schema. | `feature/database-migrations` |
+
+## internal/repository/raid
+
+Needs Docker (uses `dbtest`, see above). The package is named `raid`; tests import it as `raidrepo` and the domain package as `domain`.
+
+| Test | Requirement | Branch |
+|---|---|---|
+| `TestCreateAndGet` | `Create` stores a scheduled raid and returns a DB-assigned ID; `Get` returns the same name, leader, members (leader only) and start time in UTC, with empty channel/message IDs. | `feature/raid-repository` |
+| `TestGetUnknownRaid` | An unknown ID, a malformed ID (`not-a-uuid`) or an empty ID returns `ErrNotFound`, not a database error. | `feature/raid-repository` |
+| `TestJoinAndLeavePersist` | `Join`/`Leave` are saved and keep join order; domain errors (`ErrDuplicateMember`, `ErrLeaderCannotLeave`, `ErrNotMember`) come through; unknown or malformed raid IDs give `ErrNotFound`. | `feature/raid-repository` |
+| `TestJoinFullRaid` | A 7th `Join` returns `ErrFull` and the database still holds 6 members. | `feature/raid-repository` |
+| `TestConcurrentJoins` | 10 simultaneous joins on a raid with 5 members: exactly 1 succeeds, 9 get `ErrFull`, 6 stored. Verified it fails (10 join, 15 stored) without the `SELECT ... FOR UPDATE` row lock. | `feature/raid-repository` |
+| `TestSetMessage` | `SetMessage` saves the Discord channel and message IDs; an unknown raid returns `ErrNotFound`. | `feature/raid-repository` |
+| `TestDelete` | `Delete` removes the raid and its members; deleting again returns `ErrNotFound`. | `feature/raid-repository` |
+| `TestListUpcoming` | `ListUpcoming(now)` returns only raids starting after `now`, soonest first, each with its members. | `feature/raid-repository` |
