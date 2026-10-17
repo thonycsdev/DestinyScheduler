@@ -52,3 +52,31 @@ func TestParseStartRejectsBadInput(t *testing.T) {
 		})
 	}
 }
+
+// TestParseStartHandlesDaylightSaving ensures the UTC offset used is the one
+// in effect on the raid's date, not today's, around DST changes. 2026 dates:
+// London switches on Mar 29 and Oct 25; New York falls back on Nov 1.
+func TestParseStartHandlesDaylightSaving(t *testing.T) {
+	cases := []struct {
+		name, date, timezone string
+		want                 time.Time
+	}{
+		{"London before spring forward (GMT)", "2026-03-28", "Europe/London", time.Date(2026, 3, 28, 21, 0, 0, 0, time.UTC)},
+		{"London after spring forward (BST)", "2026-03-29", "Europe/London", time.Date(2026, 3, 29, 20, 0, 0, 0, time.UTC)},
+		{"London before fall back (BST)", "2026-10-24", "Europe/London", time.Date(2026, 10, 24, 20, 0, 0, 0, time.UTC)},
+		{"London after fall back (GMT)", "2026-10-25", "Europe/London", time.Date(2026, 10, 25, 21, 0, 0, 0, time.UTC)},
+		{"New York before fall back (EDT)", "2026-10-31", "America/New_York", time.Date(2026, 11, 1, 1, 0, 0, 0, time.UTC)},
+		{"New York after fall back (EST)", "2026-11-01", "America/New_York", time.Date(2026, 11, 2, 2, 0, 0, 0, time.UTC)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := ParseStart(c.date, "21:00", c.timezone)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !got.Equal(c.want) {
+				t.Errorf("21:00 on %s in %s = %v, want %v", c.date, c.timezone, got, c.want)
+			}
+		})
+	}
+}
