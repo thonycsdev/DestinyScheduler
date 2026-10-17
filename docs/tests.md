@@ -54,3 +54,13 @@ Needs Docker (uses `dbtest`, see above). The package is named `raid`; tests impo
 | `TestDelete` | `Delete` removes the raid and its members; deleting again returns `ErrNotFound`. | `feature/raid-repository` |
 | `TestListUpcoming` | `ListUpcoming(now)` returns only raids starting after `now`, soonest first, each with its members. | `feature/raid-repository` |
 | `TestJoinAndLeaveRefusedAfterStart` (repository) | `Repository.Join`/`Leave` take `now` and the domain's `ErrStarted` rule applies to stored raids; nothing is written. | `feature/started-raids` |
+
+## internal/bot
+
+| Test | Requirement | Branch |
+|---|---|---|
+| `TestRaidMessageShowsTimeInEachViewersZone` | The raid message shows the start as Discord timestamps `<t:UNIX:F>` and `<t:UNIX:R>`, which each viewer sees in their own time zone (the README's core promise). Title is the raid name. | `feature/raid-message` |
+| `TestRaidMessageListsFireteam` | The fireteam field is `Fireteam (n/6)` and lists `<@id>` mentions in join order, leader prefixed with 👑. | `feature/raid-message` |
+| `TestRaidMessageButtons` | Buttons are Join, Leave, Cancel with IDs `raid:<action>:<raid id>`; Join is disabled when the fireteam is full. | `feature/raid-message` |
+| `TestCancelledMessage` | A cancelled raid's title says "Cancelled" with the raid name, keeps the When field, and has an empty non-nil component list (so editing removes the buttons). | `feature/raid-message` |
+| `TestParseCustomID` | `raid:<join\|leave\|cancel>:<id>` parses; empty, unknown action, other prefixes or missing ID are rejected. | `feature/raid-message` |
