@@ -137,3 +137,38 @@ func TestJoinRaid(t *testing.T) {
 		t.Errorf("after refused join, len(Members) = %d, want %d", len(r.Members), FireteamSize)
 	}
 }
+
+// TestLeaveRaid covers members leaving a scheduled raid: a member's slot is
+// freed (so someone else can take it), someone not in the fireteam can't
+// leave, and the leader can't leave (they cancel the raid instead).
+func TestLeaveRaid(t *testing.T) {
+	r, err := Schedule("Last Wish", testStart, "leader-1", testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []string{"u2", "u3", "u4", "u5", "u6"} {
+		if err := r.Join(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := r.Leave("u3"); err != nil {
+		t.Fatalf("Leave(member): %v", err)
+	}
+	if want := []string{"leader-1", "u2", "u4", "u5", "u6"}; !slices.Equal(r.Members, want) {
+		t.Errorf("Members = %v, want %v", r.Members, want)
+	}
+	if err := r.Join("u7"); err != nil {
+		t.Errorf("Join after a slot was freed: %v", err)
+	}
+
+	if err := r.Leave("u3"); !errors.Is(err, ErrNotMember) {
+		t.Errorf("Leave(non-member): err = %v, want ErrNotMember", err)
+	}
+	if err := r.Leave("leader-1"); !errors.Is(err, ErrLeaderCannotLeave) {
+		t.Errorf("Leave(leader): err = %v, want ErrLeaderCannotLeave", err)
+	}
+	if !slices.Contains(r.Members, "leader-1") {
+		t.Error("leader was removed after a refused Leave")
+	}
+}
