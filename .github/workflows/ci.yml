@@ -22,6 +22,8 @@ jobs:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
+    # DATABASE_URL is a secret of the PRD environment, not of the repository.
+    environment: PRD
     # One migration run at a time; a newer push waits instead of cancelling.
     concurrency:
       group: migrate-database
@@ -32,7 +34,7 @@ jobs:
       - name: Require DATABASE_URL secret
         run: |
           if [ -z "$DATABASE_URL" ]; then
-            echo "::error::The DATABASE_URL repository secret is not set."
+            echo "::error::The DATABASE_URL secret is not set in the PRD environment."
             exit 1
           fi
       - uses: actions/checkout@v7

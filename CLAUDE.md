@@ -22,7 +22,7 @@ go test ./internal/raid -run TestScheduleRaid -v  # run a single test
 go vet ./...
 ```
 
-CI (`.github/workflows/ci.yml`): `go vet` + `go test` on every PR and push to `master`; on pushes to `master` only, after tests pass, `go run ./cmd/migrate up` against the `DATABASE_URL` repository secret (one run at a time). Lint the workflow with `go run github.com/rhysd/actionlint/cmd/actionlint@latest`.
+CI (`.github/workflows/ci.yml`): `go vet` + `go test` on every PR and push to `master`; on pushes to `master` only, after tests pass, `go run ./cmd/migrate up` against the `DATABASE_URL` secret of the `PRD` GitHub environment (one run at a time). Lint the workflow with `go run github.com/rhysd/actionlint/cmd/actionlint@latest`.
 
 New migration: add `internal/database/migrations/NNNNN_description.sql` with `-- +goose Up` and `-- +goose Down` sections; `TestMigrationsDownAndUp` checks it rolls back.
 
