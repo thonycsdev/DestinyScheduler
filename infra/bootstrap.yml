@@ -1,0 +1,162 @@
+# One-time setup, deployed by hand (CI can't create the role it logs in with):
+#
+#   aws cloudformation deploy --region us-east-1 --stack-name destiny-scheduler-bootstrap \
+#     --template-file infra/bootstrap.yml --capabilities CAPABILITY_NAMED_IAM
+#
+# Then store the DeployRoleArn output as the AWS_DEPLOY_ROLE_ARN variable of
+# the PRD GitHub environment.
+#
+# Long-form intrinsics only ({"Ref": ...}, not !Ref) so infra_test.go can parse it.
+AWSTemplateFormatVersion: "2010-09-09"
+Description: DestinyScheduler bootstrap - GitHub OIDC provider and CI deploy role
+
+Parameters:
+  AppStackName:
+    Type: String
+    Default: destiny-scheduler-app
+
+Resources:
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+
+  # Role CloudFormation itself uses to create the app stack's resources, so the
+  # CI role doesn't need those permissions directly.
+  CloudFormationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: destiny-scheduler-cfn-exec
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Everything except IAM; the app stack's roles are granted below.
+        - arn:aws:iam::aws:policy/PowerUserAccess
+      Policies:
+        - PolicyName: app-stack-iam
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:GetRole
+                  - iam:UpdateRole
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:GetRolePolicy
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:PassRole
+                  - iam:CreateInstanceProfile
+                  - iam:DeleteInstanceProfile
+                  - iam:GetInstanceProfile
+                  - iam:AddRoleToInstanceProfile
+                  - iam:RemoveRoleFromInstanceProfile
+                  - iam:TagInstanceProfile
+                Resource:
+                  - {"Fn::Sub": "arn:aws:iam::${AWS::AccountId}:role/destiny-scheduler-instance"}
+                  - {"Fn::Sub": "arn:aws:iam::${AWS::AccountId}:instance-profile/destiny-scheduler-instance"}
+              - Effect: Allow
+                Action: iam:CreateServiceLinkedRole
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    iam:AWSServiceName:
+                      - autoscaling.amazonaws.com
+                      - spot.amazonaws.com
+
+  # Role assumed by GitHub Actions jobs in this repo's PRD environment.
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: destiny-scheduler-github-deploy
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: {"Ref": "GitHubOIDCProvider"}
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                # Written out, not a parameter, so it can't be pointed at another repo.
+                token.actions.githubusercontent.com:sub: repo:thonycsdev/DestinyScheduler:environment:PRD
+      Policies:
+        - PolicyName: deploy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: DeployAppStack
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:GetTemplateSummary
+                Resource:
+                  - {"Fn::Sub": "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AppStackName}/*"}
+                  - {"Fn::Sub": "arn:aws:cloudformation:${AWS::Region}:aws:transform/*"}
+              - Sid: PassExecutionRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: {"Fn::GetAtt": ["CloudFormationExecutionRole", "Arn"]}
+              - Sid: EcrLogin
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: EcrPush
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:PutImage
+                  - ecr:BatchGetImage
+                Resource: {"Fn::Sub": "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/destiny-scheduler"}
+              - Sid: SetImageTag
+                Effect: Allow
+                Action:
+                  - ssm:PutParameter
+                  - ssm:GetParameter
+                Resource: {"Fn::Sub": "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/destiny-scheduler/image-tag"}
+              - Sid: RestartBot
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - {"Fn::Sub": "arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript"}
+                  - {"Fn::Sub": "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"}
+              - Sid: WatchRestart
+                Effect: Allow
+                Action:
+                  - ssm:GetCommandInvocation
+                  - ssm:ListCommandInvocations
+                  - autoscaling:DescribeAutoScalingGroups
+                Resource: "*"
+              - Sid: ReadDatabaseUrlForMigrations
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: {"Fn::Sub": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:destiny-scheduler/database-url-*"}
+
+Outputs:
+  DeployRoleArn:
+    Description: Store as the AWS_DEPLOY_ROLE_ARN variable of the PRD GitHub environment
+    Value: {"Fn::GetAtt": ["DeployRole", "Arn"]}
+  CloudFormationExecutionRoleArn:
+    Description: Passed by CI as the app stack's --role-arn
+    Value: {"Fn::GetAtt": ["CloudFormationExecutionRole", "Arn"]}

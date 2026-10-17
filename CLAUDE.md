@@ -12,6 +12,7 @@ Layers:
 - `internal/repository/<domain>`: one package per domain that saves and loads it, using `internal/database`.
 - `internal/bot`: Discord layer. `Handler` methods (`Create`, `Button`, `List`) are plain functions from an input struct to a `Response`, tested against real Postgres; `Dispatch` in `discord.go` is the thin, untested discordgo adapter. Refused actions become private (ephemeral) replies; only unexpected errors are returned.
 - `cmd/bot`: entry point. Refuses to start if `DISCORD_TOKEN` is missing or `CheckSchema` fails.
+- `infra/`: CloudFormation. `bootstrap.yml` (GitHub OIDC provider + CI deploy role; deployed once by hand) and `app.yml` (VPC, Spot `t4g` instance in an ASG of exactly 1 running the bot container under systemd, ECR, Secrets Manager, logs; deployed by CI). Use long-form intrinsics (`{"Ref": ...}`), never `!Ref`: `infra/infra_test.go` parses the templates as plain YAML. Keep the instance scripts free of `Fn::Sub` so they can be shellchecked.
 - `internal/config`: settings, read with precedence real env var > `.env` (git-ignored, local secrets) > `.env.development` (committed dev defaults). Never commit `.env`.
 
 ## Commands
@@ -24,6 +25,7 @@ docker build --platform linux/arm64 -t destiny-bot .  # production image (distro
 go test ./...                                     # run all tests (database tests need Docker running)
 go test ./internal/raid -run TestScheduleRaid -v  # run a single test
 go vet ./...
+docker run --rm -v "$PWD/infra:/infra:ro" python:3.13-slim sh -c 'pip install -q cfn-lint && cfn-lint --regions us-east-1 -- /infra/*.yml'
 ```
 
 CI (`.github/workflows/ci.yml`): `go vet` + `go test` on every PR and push to `master`; on pushes to `master` only, after tests pass, `go run ./cmd/migrate up` against the `DATABASE_URL` secret of the `PRD` GitHub environment (one run at a time). Lint the workflow with `go run github.com/rhysd/actionlint/cmd/actionlint@latest`.

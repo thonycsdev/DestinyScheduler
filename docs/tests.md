@@ -80,3 +80,18 @@ Needs Docker: the package's `TestMain` runs `dbtest.Run`, because handlers are t
 | `TestCommandsDefinition` | `/raid` is guild-only, with subcommands `create` (required options raid → choices exactly `raid.Names`, date, time, timezone with autocomplete) and `list`. | `feature/discord-adapter` |
 | `TestReadInteractions` | The adapter reads the subcommand, `/raid create` options and user ID, the focused autocomplete text, and a button click's custom ID and Manage Messages permission from discordgo payloads. | `feature/discord-adapter` |
 | `TestInteractionResponse` | Responses map to a new message or an in-place update, ephemeral replies set the ephemeral flag, mentions never ping (empty allow list), and a cancelled update serializes `"components":[]` so the buttons are removed. | `feature/discord-adapter` |
+
+## infra
+
+Go tests over the CloudFormation templates (`infra/app.yml`, `infra/bootstrap.yml`). Templates must use long-form intrinsics (`{"Ref": ...}`, not `!Ref`) so they parse as plain YAML. `cfn-lint` runs separately (see CLAUDE.md).
+
+| Test | Requirement | Branch |
+|---|---|---|
+| `TestAppRunsExactlyOneBot` | Never two bots (both would answer every click): ASG min/max/desired = 1, `CapacityRebalance: false`, rolling update `MinInstancesInService: 0`. Verified it fails with `CapacityRebalance: true`. | `feature/aws-infrastructure` |
+| `TestAppUsesSpotGraviton` | Spot only (on-demand base and percentage 0), instance types `t4g.micro` then `t4g.nano`, 2 subnets, AMI from the latest AL2023 arm64 SSM parameter, 8 GiB gp3 root volume. | `feature/aws-infrastructure` |
+| `TestAppAllowsNoInboundTraffic` | No ingress rules or `SecurityGroupIngress` resources, no NAT gateway, no SSH key, IMDSv2 required, instance role has `AmazonSSMManagedInstanceCore` (Session Manager). | `feature/aws-infrastructure` |
+| `TestAppStorageLimits` | ECR lifecycle keeps the last 5 images; logs retained 14 days. | `feature/aws-infrastructure` |
+| `TestAppNamesMatchStartScript` | The secrets, image-tag parameter, ECR repository and log group the template creates have exactly the names the instance script uses; the image tag starts as `none`. | `feature/aws-infrastructure` |
+| `TestInstanceScriptsPassShellcheck` | The user data and the `destiny-bot-start` script it installs pass `shellcheck --severity=style`. The start script is linted on its own because shellcheck ignores quoted heredoc contents (found by a mutation check). Uses local shellcheck or Docker; required in CI. | `feature/aws-infrastructure` |
+| `TestBootstrapTrustsOnlyThisRepo` | The deploy role trusts only GitHub's OIDC provider with exact `StringEquals`: aud `sts.amazonaws.com`, sub `repo:thonycsdev/DestinyScheduler:environment:PRD` (written out, not a parameter). | `feature/aws-infrastructure` |
+| `TestBootstrapDeployRoleIsScoped` | The deploy role has no wildcard actions and can `iam:PassRole` only the CloudFormation execution role. | `feature/aws-infrastructure` |

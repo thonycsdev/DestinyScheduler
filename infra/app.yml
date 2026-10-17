@@ -1,0 +1,325 @@
+# The bot's infrastructure, deployed by CI on every push to master:
+#
+#   aws cloudformation deploy --stack-name destiny-scheduler-app --template-file infra/app.yml \
+#     --role-arn <CloudFormationExecutionRoleArn> --capabilities CAPABILITY_NAMED_IAM
+#
+# One Spot t4g instance in an Auto Scaling Group of exactly 1 runs the bot
+# container under systemd. There are no inbound ports; use SSM Session
+# Manager to get a shell. After the first deploy, set the real secret values:
+#
+#   aws secretsmanager put-secret-value --secret-id destiny-scheduler/discord-token --secret-string '<token>'
+#   aws secretsmanager put-secret-value --secret-id destiny-scheduler/database-url --secret-string '<url>'
+#
+# Long-form intrinsics only ({"Ref": ...}, not !Ref) so infra_test.go can parse
+# it. The rules it enforces are listed in docs/tests.md.
+AWSTemplateFormatVersion: "2010-09-09"
+Description: DestinyScheduler Discord bot on a single Spot instance
+
+Parameters:
+  ImageId:
+    Description: Latest Amazon Linux 2023 ARM AMI; a newer one replaces the instance on the next deploy.
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+
+Resources:
+  # --- Network: public subnets, no NAT (the bot only makes outbound calls) ---
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - {Key: Name, Value: destiny-scheduler}
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: {"Ref": "Vpc"}
+      InternetGatewayId: {"Ref": "InternetGateway"}
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: {"Ref": "Vpc"}
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: {"Ref": "PublicRouteTable"}
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: {"Ref": "InternetGateway"}
+
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: {"Ref": "Vpc"}
+      CidrBlock: 10.20.0.0/24
+      AvailabilityZone: {"Fn::Select": [0, {"Fn::GetAZs": ""}]}
+      MapPublicIpOnLaunch: true
+      Tags:
+        - {Key: Name, Value: destiny-scheduler-a}
+
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: {"Ref": "Vpc"}
+      CidrBlock: 10.20.1.0/24
+      AvailabilityZone: {"Fn::Select": [1, {"Fn::GetAZs": ""}]}
+      MapPublicIpOnLaunch: true
+      Tags:
+        - {Key: Name, Value: destiny-scheduler-b}
+
+  SubnetARouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: {"Ref": "SubnetA"}
+      RouteTableId: {"Ref": "PublicRouteTable"}
+
+  SubnetBRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: {"Ref": "SubnetB"}
+      RouteTableId: {"Ref": "PublicRouteTable"}
+
+  BotSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: DestinyScheduler bot - outbound only, no inbound rules
+      VpcId: {"Ref": "Vpc"}
+      SecurityGroupEgress:
+        - {IpProtocol: "-1", CidrIp: 0.0.0.0/0, Description: "Discord, Postgres and AWS APIs"}
+
+  # --- Images, secrets, configuration, logs ---
+  Repository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: destiny-scheduler
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {"rules": [{"rulePriority": 1, "description": "Keep the last 5 images",
+            "selection": {"tagStatus": "any", "countType": "imageCountMoreThan", "countNumber": 5},
+            "action": {"type": "expire"}}]}
+
+  DiscordTokenSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: destiny-scheduler/discord-token
+      Description: Production Discord bot token. Set the real value with put-secret-value.
+      SecretString: set-me
+
+  DatabaseUrlSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: destiny-scheduler/database-url
+      Description: Production DATABASE_URL, used by the bot and by CI migrations. Set with put-secret-value.
+      SecretString: set-me
+
+  # The image tag CI deployed last. CI overwrites it; "none" means nothing
+  # has been deployed yet, so the bot service waits.
+  ImageTagParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /destiny-scheduler/image-tag
+      Type: String
+      Value: none
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /destiny-scheduler/bot
+      RetentionInDays: 14
+
+  # --- Instance ---
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: destiny-scheduler-instance
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Session Manager shell access and Run Command deploys.
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: run-bot
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchCheckLayerAvailability
+                Resource: {"Fn::GetAtt": ["Repository", "Arn"]}
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  - {"Ref": "DiscordTokenSecret"}
+                  - {"Ref": "DatabaseUrlSecret"}
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: {"Fn::Sub": "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/destiny-scheduler/image-tag"}
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: {"Fn::Sub": "${LogGroup.Arn}:*"}
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: destiny-scheduler-instance
+      Roles:
+        - {"Ref": "InstanceRole"}
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: destiny-scheduler-bot
+      LaunchTemplateData:
+        ImageId: {"Ref": "ImageId"}
+        IamInstanceProfile:
+          Arn: {"Fn::GetAtt": ["InstanceProfile", "Arn"]}
+        SecurityGroupIds:
+          - {"Ref": "BotSecurityGroup"}
+        MetadataOptions:
+          HttpTokens: required
+          HttpPutResponseHopLimit: 1
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeSize: 8
+              VolumeType: gp3
+              Encrypted: true
+              DeleteOnTermination: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - {Key: Name, Value: destiny-scheduler-bot}
+        # Plain script (no Fn::Sub) so infra_test.go can shellcheck it.
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            # Installs Docker and the destiny-bot systemd service, which runs
+            # the image tag CI deployed last.
+            set -euo pipefail
+
+            dnf install -y docker
+            systemctl enable --now docker
+
+            cat > /usr/local/bin/destiny-bot-start <<'SCRIPT'
+            #!/bin/bash
+            # Started by systemd: fetch the deployed image tag and secrets,
+            # then run the bot container in the foreground.
+            set -euo pipefail
+
+            imds=http://169.254.169.254/latest
+            token=$(curl -fsS -X PUT "$imds/api/token" -H 'X-aws-ec2-metadata-token-ttl-seconds: 300')
+            region=$(curl -fsS -H "X-aws-ec2-metadata-token: $token" "$imds/meta-data/placement/region")
+            export AWS_REGION="$region"
+
+            tag=$(aws ssm get-parameter --name /destiny-scheduler/image-tag --query Parameter.Value --output text)
+            if [ "$tag" = none ]; then
+              echo "No image deployed yet; waiting for CI to set /destiny-scheduler/image-tag." >&2
+              exit 1
+            fi
+
+            account=$(aws sts get-caller-identity --query Account --output text)
+            registry="$account.dkr.ecr.$region.amazonaws.com"
+            image="$registry/destiny-scheduler:$tag"
+            aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+            docker pull "$image"
+
+            # Secrets go to a root-only file on /run, which is in memory (tmpfs).
+            env_file=/run/destiny-bot.env
+            umask 077
+            {
+              printf 'DISCORD_TOKEN=%s\n' "$(aws secretsmanager get-secret-value --secret-id destiny-scheduler/discord-token --query SecretString --output text)"
+              printf 'DATABASE_URL=%s\n' "$(aws secretsmanager get-secret-value --secret-id destiny-scheduler/database-url --query SecretString --output text)"
+            } > "$env_file"
+
+            docker rm -f destiny-bot >/dev/null 2>&1 || true
+            exec docker run --rm --name destiny-bot --env-file "$env_file" \
+              --log-driver awslogs \
+              --log-opt awslogs-region="$region" \
+              --log-opt awslogs-group=/destiny-scheduler/bot \
+              --log-opt awslogs-stream="$(hostname)" \
+              "$image"
+            SCRIPT
+            chmod 755 /usr/local/bin/destiny-bot-start
+
+            cat > /etc/systemd/system/destiny-bot.service <<'UNIT'
+            [Unit]
+            Description=DestinyScheduler Discord bot
+            Requires=docker.service
+            After=docker.service network-online.target
+            Wants=network-online.target
+
+            [Service]
+            ExecStart=/usr/local/bin/destiny-bot-start
+            # SIGTERM lets the bot close its Discord session cleanly.
+            ExecStop=/usr/bin/docker stop --time 20 destiny-bot
+            TimeoutStopSec=40
+            Restart=always
+            RestartSec=30
+
+            [Install]
+            WantedBy=multi-user.target
+            UNIT
+
+            systemctl daemon-reload
+            systemctl enable --now destiny-bot
+
+  # Exactly one bot. Two running copies would both answer every Discord click.
+  BotAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn: DefaultRoute
+    UpdatePolicy:
+      # Terminate the old instance before launching its replacement.
+      AutoScalingRollingUpdate:
+        MinInstancesInService: 0
+        MaxBatchSize: 1
+    Properties:
+      AutoScalingGroupName: destiny-scheduler-bot
+      MinSize: "1"
+      MaxSize: "1"
+      DesiredCapacity: "1"
+      # Rebalancing launches a replacement before the old Spot instance stops.
+      CapacityRebalance: false
+      VPCZoneIdentifier:
+        - {"Ref": "SubnetA"}
+        - {"Ref": "SubnetB"}
+      MixedInstancesPolicy:
+        InstancesDistribution:
+          OnDemandBaseCapacity: 0
+          OnDemandPercentageAboveBaseCapacity: 0
+          SpotAllocationStrategy: price-capacity-optimized
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId: {"Ref": "LaunchTemplate"}
+            Version: {"Fn::GetAtt": ["LaunchTemplate", "LatestVersionNumber"]}
+          Overrides:
+            - InstanceType: t4g.micro
+            - InstanceType: t4g.nano
+
+Outputs:
+  RepositoryUri:
+    Value: {"Fn::GetAtt": ["Repository", "RepositoryUri"]}
+  AutoScalingGroupName:
+    Value: {"Ref": "BotAutoScalingGroup"}
+  ImageTagParameterName:
+    Value: {"Ref": "ImageTagParameter"}
