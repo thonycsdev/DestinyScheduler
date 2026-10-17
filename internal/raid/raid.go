@@ -26,9 +26,10 @@ var Names = []string{
 }
 
 var (
-	ErrFull        = errors.New("fireteam is full (max 6 members)")
-	ErrUnknownRaid = errors.New("unknown raid")
-	ErrNoMembers   = errors.New("a raid needs at least one member")
+	ErrFull            = errors.New("fireteam is full (max 6 members)")
+	ErrUnknownRaid     = errors.New("unknown raid")
+	ErrNoMembers       = errors.New("a raid needs at least one member")
+	ErrDuplicateMember = errors.New("member listed more than once")
 )
 
 // Raid is a scheduled raid and its fireteam.
@@ -49,6 +50,11 @@ func Schedule(name string, start time.Time, members []string) (Raid, error) {
 	}
 	if len(members) > FireteamSize {
 		return Raid{}, ErrFull
+	}
+	for i, m := range members {
+		if slices.Contains(members[:i], m) {
+			return Raid{}, fmt.Errorf("%w: %q", ErrDuplicateMember, m)
+		}
 	}
 	return Raid{
 		Name:     name,

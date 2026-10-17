@@ -13,3 +13,4 @@ Run one with `go test ./internal/raid -run <TestName> -v`.
 | `TestScheduleRaidRejectsUnknownRaid` | Only raids in `raid.Names` can be scheduled; an unknown or empty name fails with `ErrUnknownRaid`. | `feature/known-raids` |
 | `TestScheduleRaidAcceptsEveryKnownRaid` | Every raid in `raid.Names` is accepted, so the list and the validation stay in sync. | `feature/known-raids` |
 | `TestScheduleRaidRequiresAtLeastOneMember` | Scheduling with a nil or empty member list fails with `ErrNoMembers`. | `feature/require-members` |
+| `TestScheduleRaidRejectsDuplicateMembers` | A member listed twice fails with `ErrDuplicateMember`, so one player can't take two slots. | `feature/unique-members` |

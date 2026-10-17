@@ -89,3 +89,12 @@ func TestScheduleRaidRequiresAtLeastOneMember(t *testing.T) {
 		}
 	}
 }
+
+// TestScheduleRaidRejectsDuplicateMembers ensures one player can't take two
+// fireteam slots by being listed twice.
+func TestScheduleRaidRejectsDuplicateMembers(t *testing.T) {
+	_, err := Schedule("Last Wish", time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), []string{"Anthony", "Cayde", "Anthony"})
+	if !errors.Is(err, ErrDuplicateMember) {
+		t.Errorf("err = %v, want ErrDuplicateMember", err)
+	}
+}
