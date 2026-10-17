@@ -57,3 +57,24 @@ func TestScheduleRaidRejectsMoreThanSixMembers(t *testing.T) {
 		t.Errorf("Schedule with 7 members: err = %v, want ErrFull", err)
 	}
 }
+
+// TestScheduleRaidRejectsUnknownRaid ensures only real Destiny 2 raids (the
+// Names list) can be scheduled, so typos and made-up raids are caught early.
+func TestScheduleRaidRejectsUnknownRaid(t *testing.T) {
+	for _, name := range []string{"Raid of Mars", ""} {
+		_, err := Schedule(name, time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), []string{"Anthony"})
+		if !errors.Is(err, ErrUnknownRaid) {
+			t.Errorf("Schedule(%q): err = %v, want ErrUnknownRaid", name, err)
+		}
+	}
+}
+
+// TestScheduleRaidAcceptsEveryKnownRaid ensures every raid in Names can be
+// scheduled, so the list and the validation can't drift apart.
+func TestScheduleRaidAcceptsEveryKnownRaid(t *testing.T) {
+	for _, name := range Names {
+		if _, err := Schedule(name, time.Date(2026, 10, 20, 21, 0, 0, 0, time.UTC), []string{"Anthony"}); err != nil {
+			t.Errorf("Schedule(%q): %v", name, err)
+		}
+	}
+}
