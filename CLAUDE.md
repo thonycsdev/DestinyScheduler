@@ -12,7 +12,7 @@ Layers:
 - `internal/repository/<domain>`: one package per domain that saves and loads it, using `internal/database`.
 - `internal/bot`: Discord layer. `Handler` methods (`Create`, `Button`, `List`) are plain functions from an input struct to a `Response`, tested against real Postgres; `Dispatch` in `discord.go` is the thin, untested discordgo adapter. Refused actions become private (ephemeral) replies; only unexpected errors are returned.
 - `cmd/bot`: entry point. Refuses to start if `DISCORD_TOKEN` is missing or `CheckSchema` fails.
-- `infra/`: CloudFormation. `bootstrap.yml` (GitHub OIDC provider + CI deploy role; deployed once by hand) and `app.yml` (VPC, On-Demand `t4g.micro` in an ASG of exactly 1 running the bot container under systemd, ECR, Secrets Manager, logs; deployed by CI). Use long-form intrinsics (`{"Ref": ...}`), never `!Ref`: `infra/infra_test.go` parses the templates as plain YAML. Keep the instance scripts free of `Fn::Sub` so they can be shellchecked.
+- `infra/`: CloudFormation. `bootstrap.yml` (GitHub OIDC provider + CI deploy role; deployed once by hand) and `app.yml` (VPC, On-Demand `t4g.micro` in an ASG of exactly 1 running the bot container under systemd, ECR, Secrets Manager, logs; deployed by CI).
 - AWS: everything is in **us-east-2**. The account's AWS Organization SCPs deny every other region and Spot launches; GitHub OIDC provider actions needed an SCP exception.
 - `internal/config`: settings, read with precedence real env var > `.env` (git-ignored, local secrets) > `.env.development` (committed dev defaults). Never commit `.env`.
 
@@ -30,7 +30,7 @@ docker run --rm -v "$PWD/infra:/infra:ro" python:3.13-slim sh -c 'pip install -q
 ```
 
 CI (`.github/workflows/ci.yml`):
-- Every PR and push to `master`: `go vet`, `go test` (including the infra template tests and shellcheck), `cfn-lint`, `actionlint`. PRs also build the image on `ubuntu-24.04-arm`.
+- Every PR and push to `master`: `go vet`, `go test`, `cfn-lint`, `actionlint`. PRs also build the image on `ubuntu-24.04-arm`.
 - Pushes to `master` only, one at a time, in the `PRD` environment: assume `vars.AWS_DEPLOY_ROLE_ARN` via OIDC → `cloudformation deploy` the app stack → read `DATABASE_URL` from Secrets Manager (`destiny-scheduler/database-url`) and `go run ./cmd/migrate up` → build and push the arm64 image tagged with the commit SHA → set `/destiny-scheduler/image-tag` → restart `destiny-bot` via SSM Run Command and require it to still be running 20s later.
 - Lint the workflow locally with `docker run --rm -v "$PWD:/repo" --workdir /repo rhysd/actionlint:latest` (bundles shellcheck for `run:` blocks).
 
