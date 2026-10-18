@@ -33,6 +33,7 @@ var (
 	ErrInPast            = errors.New("raid time is in the past")
 	ErrNotMember         = errors.New("not in the fireteam")
 	ErrLeaderCannotLeave = errors.New("the leader can't leave; cancel the raid instead")
+	ErrStarted           = errors.New("this raid has already started")
 )
 
 // Raid is a scheduled raid and its fireteam.
@@ -66,8 +67,17 @@ func Schedule(name string, start time.Time, leaderID string, now time.Time) (Rai
 	}, nil
 }
 
-// Join adds a member to the fireteam.
-func (r *Raid) Join(member string) error {
+// Started reports whether the raid has started at now.
+func (r *Raid) Started(now time.Time) bool {
+	return !now.Before(r.StartsAt)
+}
+
+// Join adds a member to the fireteam. The fireteam is locked once the raid
+// has started.
+func (r *Raid) Join(member string, now time.Time) error {
+	if r.Started(now) {
+		return ErrStarted
+	}
 	if slices.Contains(r.Members, member) {
 		return fmt.Errorf("%w: %q", ErrDuplicateMember, member)
 	}
@@ -78,8 +88,12 @@ func (r *Raid) Join(member string) error {
 	return nil
 }
 
-// Leave removes a member from the fireteam. The leader can't leave.
-func (r *Raid) Leave(member string) error {
+// Leave removes a member from the fireteam. The leader can't leave, and no
+// one can once the raid has started.
+func (r *Raid) Leave(member string, now time.Time) error {
+	if r.Started(now) {
+		return ErrStarted
+	}
 	if member == r.LeaderID {
 		return ErrLeaderCannotLeave
 	}

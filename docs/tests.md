@@ -18,6 +18,7 @@ Run one with `go test ./internal/<package> -run <TestName> -v`.
 | `TestParseStartHandlesDaylightSaving` | Uses the UTC offset in effect on the raid's date, across 2026 DST changes in `Europe/London` (Mar 29, Oct 25) and `America/New_York` (Nov 1). Passed without code changes (Go's tz database handles it); verified it fails if `ParseStart` used a fixed offset. | `feature/daylight-saving` |
 | `TestJoinRaid` | After scheduling, `Raid.Join` adds members up to 6; the 7th fails with `ErrFull` and leaves the fireteam unchanged; an existing member (including the leader) re-joining fails with `ErrDuplicateMember`. Since `Schedule` no longer takes a member list, this is now the only place the 6-player cap and the no-duplicates rule are enforced. | `feature/join-raid` |
 | `TestLeaveRaid` | `Raid.Leave` removes a member and frees their slot for someone else; a non-member leaving fails with `ErrNotMember`; the leader leaving fails with `ErrLeaderCannotLeave` and stays in the fireteam. | `feature/leave-raid` |
+| `TestJoinAndLeaveRefusedAfterStart` (raid) | From the start time on (`now >= StartsAt`), `Join` and `Leave` fail with `ErrStarted` and the fireteam is unchanged; one second before start still works. `Join`/`Leave` take `now`. | `feature/started-raids` |
 
 ## internal/config
 
@@ -27,6 +28,7 @@ Run one with `go test ./internal/<package> -run <TestName> -v`.
 | `TestLoadDoesNotModifyEnvironment` | Values read from env files are not written into the process environment. | `feature/env-config` |
 | `TestLoadRequiresDatabaseURL` | No `DATABASE_URL` anywhere fails with `ErrMissingDatabaseURL`; missing env files alone are not an error (CI/production have none). | `feature/env-config` |
 | `TestDevelopmentEnvMatchesCompose` | The committed `.env.development` `DATABASE_URL` uses the same user, password and database as `POSTGRES_*` (which `docker-compose.yml` creates the container with) and points at `localhost:5432`. | `feature/env-config` |
+| `TestLoadReadsDiscordSettings` | `DISCORD_TOKEN` and optional `DISCORD_GUILD_ID` are read with the same precedence; both are optional for `Load` (`cmd/bot` requires the token itself). | `feature/discord-adapter` |
 
 ## internal/database
 
@@ -52,3 +54,29 @@ Needs Docker (uses `dbtest`, see above). The package is named `raid`; tests impo
 | `TestSetMessage` | `SetMessage` saves the Discord channel and message IDs; an unknown raid returns `ErrNotFound`. | `feature/raid-repository` |
 | `TestDelete` | `Delete` removes the raid and its members; deleting again returns `ErrNotFound`. | `feature/raid-repository` |
 | `TestListUpcoming` | `ListUpcoming(now)` returns only raids starting after `now`, soonest first, each with its members. | `feature/raid-repository` |
+| `TestJoinAndLeaveRefusedAfterStart` (repository) | `Repository.Join`/`Leave` take `now` and the domain's `ErrStarted` rule applies to stored raids; nothing is written. | `feature/started-raids` |
+
+## internal/bot
+
+Needs Docker: the package's `TestMain` runs `dbtest.Run`, because handlers are tested against the real raid repository (no mocks).
+
+| Test | Requirement | Branch |
+|---|---|---|
+| `TestRaidMessageShowsTimeInEachViewersZone` | The raid message shows the start as Discord timestamps `<t:UNIX:F>` and `<t:UNIX:R>`, which each viewer sees in their own time zone (the README's core promise). Title is the raid name. | `feature/raid-message` |
+| `TestRaidMessageListsFireteam` | The fireteam field is `Fireteam (n/6)` and lists `<@id>` mentions in join order, leader prefixed with 👑. | `feature/raid-message` |
+| `TestRaidMessageButtons` | Buttons are Join, Leave, Cancel with IDs `raid:<action>:<raid id>`; Join is disabled when the fireteam is full. | `feature/raid-message` |
+| `TestCancelledMessage` | A cancelled raid's title says "Cancelled" with the raid name, keeps the When field, and has an empty non-nil component list (so editing removes the buttons). | `feature/raid-message` |
+| `TestParseCustomID` | `raid:<join\|leave\|cancel>:<id>` parses; empty, unknown action, other prefixes or missing ID are rejected. | `feature/raid-message` |
+| `TestCreateRaid` | `/raid create` turns date + time + time zone into a stored raid led by the user (21:00 São Paulo → 00:00 UTC) and replies with the public raid message and its `RaidID`; `RecordMessage` saves the posted channel/message IDs. | `feature/bot-handlers` |
+| `TestCreateRaidRejectsBadInput` | Unknown time zone, bad date format, past time or unknown raid gives a private explanation and stores nothing. | `feature/bot-handlers` |
+| `TestJoinAndLeaveButtons` | Join and Leave are saved and reply with an in-place update of the raid message showing the new count. | `feature/bot-handlers` |
+| `TestButtonErrorsArePrivate` | Already in, not in, leader leaving, raid gone, raid full, already started, and unrecognized button IDs each get a private message and no message update. | `feature/bot-handlers` |
+| `TestCancelButton` | A non-leader without Manage Messages can't cancel (raid kept); the leader can, even after the start time; a moderator (`CanManageMessages`) can. Cancelling deletes the raid and updates the message to the cancelled version with no buttons. | `feature/bot-handlers` |
+| `TestListRaids` | `/raid list` replies privately: "no upcoming raids" when empty, otherwise raids soonest first with Discord timestamps and `n/6`. | `feature/bot-handlers` |
+| `TestTimezoneChoicesMatchCities` | Time zone autocomplete finds a zone from part of its city, ignoring case, spaces vs underscores and accents (`São Paulo` → `America/Sao_Paulo`). | `feature/timezone-autocomplete` |
+| `TestTimezoneChoicesRankCityPrefixFirst` | Zones whose city starts with the query come first (`paris` → `Europe/Paris`). | `feature/timezone-autocomplete` |
+| `TestTimezoneChoicesLimit` | At most 25 suggestions (Discord's limit); an empty query suggests common zones incl. `UTC` and `America/Sao_Paulo`; no match gives none. | `feature/timezone-autocomplete` |
+| `TestTimezoneChoicesAreLoadable` | Every suggested zone (the generated `zones` list and `commonZones`) loads with `time.LoadLocation`. | `feature/timezone-autocomplete` |
+| `TestCommandsDefinition` | `/raid` is guild-only, with subcommands `create` (required options raid → choices exactly `raid.Names`, date, time, timezone with autocomplete) and `list`. | `feature/discord-adapter` |
+| `TestReadInteractions` | The adapter reads the subcommand, `/raid create` options and user ID, the focused autocomplete text, and a button click's custom ID and Manage Messages permission from discordgo payloads. | `feature/discord-adapter` |
+| `TestInteractionResponse` | Responses map to a new message or an in-place update, ephemeral replies set the ephemeral flag, mentions never ping (empty allow list), and a cancelled update serializes `"components":[]` so the buttons are removed. | `feature/discord-adapter` |
