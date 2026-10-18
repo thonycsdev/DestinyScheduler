@@ -117,37 +117,77 @@ func TestAppRunsExactlyOneBot(t *testing.T) {
 	}
 }
 
-// TestAppUsesSpotGraviton pins the cost decisions: Spot only, t4g.micro with
-// t4g.nano as fallback, the latest Amazon Linux 2023 ARM AMI, an 8 GiB gp3
-// root volume, and subnets in two availability zones.
-func TestAppUsesSpotGraviton(t *testing.T) {
+// TestAppUsesOnDemandGraviton pins the compute decisions: one On-Demand
+// t4g.micro (Spot is denied by the organization's SCP), the latest Amazon
+// Linux 2023 ARM AMI, an 8 GiB gp3 root volume, and subnets in two
+// availability zones.
+func TestAppUsesOnDemandGraviton(t *testing.T) {
 	app := load(t, "app.yml")
 	asg := app.only(t, "AWS::AutoScaling::AutoScalingGroup")
-	dist := get(t, asg.Properties, "MixedInstancesPolicy", "InstancesDistribution")
-	for _, k := range []string{"OnDemandBaseCapacity", "OnDemandPercentageAboveBaseCapacity"} {
-		if got := str(get(t, dist, k)); got != "0" {
-			t.Errorf("%s = %s, want 0 (Spot only)", k, got)
-		}
+	if _, ok := asg.Properties["MixedInstancesPolicy"]; ok {
+		t.Error("ASG has a MixedInstancesPolicy (Spot), want a plain On-Demand launch template")
 	}
-	var types []string
-	for _, o := range get(t, asg.Properties, "MixedInstancesPolicy", "LaunchTemplate", "Overrides").([]any) {
-		types = append(types, str(get(t, o, "InstanceType")))
-	}
-	if want := []string{"t4g.micro", "t4g.nano"}; !slices.Equal(types, want) {
-		t.Errorf("instance types = %v, want %v", types, want)
+	if get(t, asg.Properties, "LaunchTemplate", "LaunchTemplateId") == nil {
+		t.Error("ASG doesn't reference the launch template directly")
 	}
 	if n := len(get(t, asg.Properties, "VPCZoneIdentifier").([]any)); n != 2 {
 		t.Errorf("ASG spans %d subnets, want 2", n)
 	}
 
+	data := get(t, app.only(t, "AWS::EC2::LaunchTemplate").Properties, "LaunchTemplateData").(map[string]any)
+	if got := str(data["InstanceType"]); got != "t4g.micro" {
+		t.Errorf("InstanceType = %s, want t4g.micro", got)
+	}
+	if _, ok := data["InstanceMarketOptions"]; ok {
+		t.Error("launch template requests a Spot market, want On-Demand")
+	}
 	ami := app.Parameters["ImageId"]
 	if ami["Type"] != "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>" || ami["Default"] != "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64" {
 		t.Errorf("ImageId parameter = %v, want the latest AL2023 arm64 AMI via SSM", ami)
 	}
-	lt := app.only(t, "AWS::EC2::LaunchTemplate")
-	ebs := get(t, lt.Properties, "LaunchTemplateData", "BlockDeviceMappings", 0, "Ebs")
+	ebs := get(t, data, "BlockDeviceMappings", 0, "Ebs")
 	if str(get(t, ebs, "VolumeSize")) != "8" || str(get(t, ebs, "VolumeType")) != "gp3" {
 		t.Errorf("root volume = %v, want 8 GiB gp3", ebs)
+	}
+}
+
+// TestDeploysToUsEast2 ensures CI deploys and lints in us-east-2, the only
+// region the organization's SCP allows.
+func TestDeploysToUsEast2(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wf struct {
+		Jobs map[string]struct {
+			Env   map[string]string `yaml:"env"`
+			Steps []struct {
+				Name string            `yaml:"name"`
+				Uses string            `yaml:"uses"`
+				Run  string            `yaml:"run"`
+				With map[string]string `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(b, &wf); err != nil {
+		t.Fatal(err)
+	}
+	deploy := wf.Jobs["deploy"]
+	if got := deploy.Env["AWS_REGION"]; got != "us-east-2" {
+		t.Errorf("deploy AWS_REGION = %q, want us-east-2", got)
+	}
+	for _, s := range deploy.Steps {
+		if strings.HasPrefix(s.Uses, "aws-actions/configure-aws-credentials") && s.With["aws-region"] != "us-east-2" {
+			t.Errorf("configure-aws-credentials aws-region = %q, want us-east-2", s.With["aws-region"])
+		}
+	}
+	for _, s := range wf.Jobs["test"].Steps {
+		if strings.Contains(s.Run, "cfn-lint") && !strings.Contains(s.Run, "--regions us-east-2") {
+			t.Errorf("cfn-lint step %q doesn't lint for us-east-2", s.Run)
+		}
+	}
+	if strings.Contains(string(b), "us-east-1") {
+		t.Error("ci.yml still mentions us-east-1")
 	}
 }
 

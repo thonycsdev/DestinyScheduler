@@ -88,7 +88,8 @@ Go tests over the CloudFormation templates (`infra/app.yml`, `infra/bootstrap.ym
 | Test | Requirement | Branch |
 |---|---|---|
 | `TestAppRunsExactlyOneBot` | Never two bots (both would answer every click): ASG min/max/desired = 1, `CapacityRebalance: false`, rolling update `MinInstancesInService: 0`. Verified it fails with `CapacityRebalance: true`. | `feature/aws-infrastructure` |
-| `TestAppUsesSpotGraviton` | Spot only (on-demand base and percentage 0), instance types `t4g.micro` then `t4g.nano`, 2 subnets, AMI from the latest AL2023 arm64 SSM parameter, 8 GiB gp3 root volume. | `feature/aws-infrastructure` |
+| `TestAppUsesOnDemandGraviton` | One On-Demand `t4g.micro` (no `MixedInstancesPolicy` or Spot market options; the organization's SCP denies Spot), 2 subnets, AMI from the latest AL2023 arm64 SSM parameter, 8 GiB gp3 root volume. Replaced `TestAppUsesSpotGraviton`. | `feature/us-east-2-on-demand` |
+| `TestDeploysToUsEast2` | The workflow deploys (`AWS_REGION`, `configure-aws-credentials`) and runs `cfn-lint` for `us-east-2`, and never mentions `us-east-1`; the SCP allows only us-east-2. | `feature/us-east-2-on-demand` |
 | `TestAppAllowsNoInboundTraffic` | No ingress rules or `SecurityGroupIngress` resources, no NAT gateway, no SSH key, IMDSv2 required, instance role has `AmazonSSMManagedInstanceCore` (Session Manager). | `feature/aws-infrastructure` |
 | `TestAppStorageLimits` | ECR lifecycle keeps the last 5 images; logs retained 14 days. | `feature/aws-infrastructure` |
 | `TestAppNamesMatchStartScript` | The secrets, image-tag parameter, ECR repository and log group the template creates have exactly the names the instance script uses; the image tag starts as `none`. | `feature/aws-infrastructure` |

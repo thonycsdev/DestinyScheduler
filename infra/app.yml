@@ -1,19 +1,19 @@
 # The bot's infrastructure, deployed by CI on every push to master:
 #
-#   aws cloudformation deploy --stack-name destiny-scheduler-app --template-file infra/app.yml \
+#   aws cloudformation deploy --region us-east-2 --stack-name destiny-scheduler-app --template-file infra/app.yml \
 #     --role-arn <CloudFormationExecutionRoleArn> --capabilities CAPABILITY_NAMED_IAM
 #
-# One Spot t4g instance in an Auto Scaling Group of exactly 1 runs the bot
+# One On-Demand t4g.micro in an Auto Scaling Group of exactly 1 runs the bot
 # container under systemd. There are no inbound ports; use SSM Session
 # Manager to get a shell. After the first deploy, set the real secret values:
 #
-#   aws secretsmanager put-secret-value --secret-id destiny-scheduler/discord-token --secret-string '<token>'
-#   aws secretsmanager put-secret-value --secret-id destiny-scheduler/database-url --secret-string '<url>'
+#   aws secretsmanager put-secret-value --region us-east-2 --secret-id destiny-scheduler/discord-token --secret-string '<token>'
+#   aws secretsmanager put-secret-value --region us-east-2 --secret-id destiny-scheduler/database-url --secret-string '<url>'
 #
 # Long-form intrinsics only ({"Ref": ...}, not !Ref) so infra_test.go can parse
 # it. The rules it enforces are listed in docs/tests.md.
 AWSTemplateFormatVersion: "2010-09-09"
-Description: DestinyScheduler Discord bot on a single Spot instance
+Description: DestinyScheduler Discord bot on a single t4g.micro instance
 
 Parameters:
   ImageId:
@@ -193,6 +193,8 @@ Resources:
       LaunchTemplateName: destiny-scheduler-bot
       LaunchTemplateData:
         ImageId: {"Ref": "ImageId"}
+        # On-Demand: the organization's SCP denies Spot launches.
+        InstanceType: t4g.micro
         IamInstanceProfile:
           Arn: {"Fn::GetAtt": ["InstanceProfile", "Arn"]}
         SecurityGroupIds:
@@ -299,23 +301,14 @@ Resources:
       MinSize: "1"
       MaxSize: "1"
       DesiredCapacity: "1"
-      # Rebalancing launches a replacement before the old Spot instance stops.
+      # Rebalancing (Spot) launches a replacement before the old instance stops.
       CapacityRebalance: false
       VPCZoneIdentifier:
         - {"Ref": "SubnetA"}
         - {"Ref": "SubnetB"}
-      MixedInstancesPolicy:
-        InstancesDistribution:
-          OnDemandBaseCapacity: 0
-          OnDemandPercentageAboveBaseCapacity: 0
-          SpotAllocationStrategy: price-capacity-optimized
-        LaunchTemplate:
-          LaunchTemplateSpecification:
-            LaunchTemplateId: {"Ref": "LaunchTemplate"}
-            Version: {"Fn::GetAtt": ["LaunchTemplate", "LatestVersionNumber"]}
-          Overrides:
-            - InstanceType: t4g.micro
-            - InstanceType: t4g.nano
+      LaunchTemplate:
+        LaunchTemplateId: {"Ref": "LaunchTemplate"}
+        Version: {"Fn::GetAtt": ["LaunchTemplate", "LatestVersionNumber"]}
 
 Outputs:
   RepositoryUri:

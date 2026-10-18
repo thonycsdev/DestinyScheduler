@@ -18,7 +18,7 @@ jobs:
       # the runner's shellcheck. CI=true makes the shellcheck test mandatory.
       - run: go test ./...
       - name: cfn-lint
-        run: pipx run cfn-lint --regions us-east-1 -- infra/*.yml
+        run: pipx run cfn-lint --regions us-east-2 -- infra/*.yml
       - name: actionlint
         run: go run github.com/rhysd/actionlint/cmd/actionlint@latest
 
@@ -46,7 +46,7 @@ jobs:
       id-token: write # GitHub OIDC -> AWS deploy role
       contents: read
     env:
-      AWS_REGION: us-east-1
+      AWS_REGION: us-east-2
       STACK: destiny-scheduler-app
       ASG: destiny-scheduler-bot
       IMAGE_TAG: ${{ github.sha }}
@@ -67,7 +67,7 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: us-east-1
+          aws-region: us-east-2
 
       - name: Deploy infrastructure
         run: |

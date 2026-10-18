@@ -1,6 +1,6 @@
 # One-time setup, deployed by hand (CI can't create the role it logs in with):
 #
-#   aws cloudformation deploy --region us-east-1 --stack-name destiny-scheduler-bootstrap \
+#   aws cloudformation deploy --region us-east-2 --stack-name destiny-scheduler-bootstrap \
 #     --template-file infra/bootstrap.yml --capabilities CAPABILITY_NAMED_IAM
 #
 # Then store the DeployRoleArn output as the AWS_DEPLOY_ROLE_ARN variable of
@@ -72,9 +72,7 @@ Resources:
                 Resource: "*"
                 Condition:
                   StringEquals:
-                    iam:AWSServiceName:
-                      - autoscaling.amazonaws.com
-                      - spot.amazonaws.com
+                    iam:AWSServiceName: autoscaling.amazonaws.com
 
   # Role assumed by GitHub Actions jobs in this repo's PRD environment.
   DeployRole:
